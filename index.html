@@ -19,10 +19,11 @@
 
     <!-- Active Mode Navigation -->
     <nav class="hud-nav">
-      <button class="nav-tab active" data-tab="onboarding">🐾 Pet Calibration</button>
+      <button class="nav-tab active" data-tab="nova-pet">✨ Nova Voice Pet</button>
+      <button class="nav-tab" data-tab="onboarding">🐾 Gaze Calibration</button>
       <button class="nav-tab" data-tab="bubblewrap">🫧 Bubble Wrap Demo</button>
       <button class="nav-tab" data-tab="theremin">🎵 Eye-Theremin</button>
-      <button class="nav-tab" data-tab="diagnostics">📊 Live Telemetry & ML</button>
+      <button class="nav-tab" data-tab="diagnostics">📊 Live Telemetry & 3D Face</button>
     </nav>
 
     <!-- Failsafe Status Indicators -->
@@ -37,8 +38,35 @@
   <!-- Main View Container -->
   <main class="hud-main">
 
+    <!-- 0. LIQUID VOICE ASSISTANT PET VIEW (NOVA) -->
+    <section id="view-nova-pet" class="view-panel active">
+      <div id="pet-container">
+        <canvas id="dust-canvas"></canvas>
+        <div id="blob">
+          <div class="eyes-container" id="pet-eyes">
+            <div class="eye"></div>
+            <div class="eye"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ui-overlay">
+        <h1>Nova</h1>
+        <p>Your liquid voice companion</p>
+        <div class="pet-status-pill" id="pet-status">Click pet to wake up</div>
+        <div class="voice-command-hints">
+          <span class="cmd-hint-badge">🗣️ "zoom"</span>
+          <span class="cmd-hint-badge">🗣️ "scroll down"</span>
+          <span class="cmd-hint-badge">🗣️ "click"</span>
+          <span class="cmd-hint-badge">🗣️ "right click"</span>
+          <span class="cmd-hint-badge">🗣️ "search [query]"</span>
+          <span class="cmd-hint-badge">🗣️ "hey nova"</span>
+        </div>
+      </div>
+    </section>
+
     <!-- 1. VIRTUAL PET CALIBRATION VIEW -->
-    <section id="view-onboarding" class="view-panel active">
+    <section id="view-onboarding" class="view-panel">
       <div class="calibration-container">
         <div class="calib-intro">
           <h2>Feed Pippin the Pet!</h2>
@@ -217,7 +245,40 @@
       <div style="font-size: 54px; margin-bottom: 12px;">🌙💤</div>
       <h2>Aura is Snoozing</h2>
       <p>A "Shhhhh" snooze sound was detected.<br>Make your custom click sound or tap to Wake Up.</p>
-      <button id="btn-wake-up" class="action-btn glow">Wake Up Aura</button>
+  <!-- PERSISTENT FLOATING QUICK-BAR (BOTTOM-LEFT) -->
+  <div id="floating-quick-bar" class="floating-quick-bar">
+    <div class="quick-bar-header">
+      <div class="quick-bar-title">
+        <span class="pulse-dot"></span> AURA DOCK
+      </div>
+      <button id="btn-quick-collapse" class="quick-bar-collapse-btn" title="Collapse / Expand Dock">−</button>
+    </div>
+    <div class="quick-bar-body">
+      <div class="quick-toggles-row">
+        <button id="quick-toggle-cam" class="quick-btn active" title="Toggle Webcam">📷 Cam: ON</button>
+        <button id="quick-toggle-voice" class="quick-btn active" title="Toggle Voice Recognition">🎤 Voice: ON</button>
+        <button id="quick-toggle-gaze" class="quick-btn active" title="Toggle Eye Cursor Movement">👁️ Gaze: ON</button>
+        <button id="quick-toggle-zoom" class="quick-btn" title="Toggle Screen Magnifier at Cursor">🔍 Zoom</button>
+      </div>
+      <div class="quick-sliders-container">
+        <div class="quick-slider-item">
+          <div class="quick-slider-label">
+            <span>⏱️ Dwell Time</span>
+            <span id="quick-dwell-val" class="slider-badge">1.0s</span>
+          </div>
+          <input type="range" id="quick-dwell-slider" min="0.4" max="3.0" step="0.1" value="1.0" class="aura-slider">
+        </div>
+        <div class="quick-slider-item">
+          <div class="quick-slider-label">
+            <span>🧲 Magnetic Snap</span>
+            <span id="quick-magnet-val" class="slider-badge">High (70px)</span>
+          </div>
+          <input type="range" id="quick-magnet-slider" min="0" max="4" step="1" value="3" class="aura-slider">
+        </div>
+      </div>
+      <div class="quick-bar-footer">
+        <div id="quick-distance-advisor" class="quick-advisor-badge">🟢 Distance: Optimal (52cm)</div>
+      </div>
     </div>
   </div>
 

@@ -1,7 +1,8 @@
 import json
 import time
+import math
 import sys
-from typing import Optional
+from typing import Optional, Tuple
 
 import asyncio
 import websockets
@@ -15,18 +16,40 @@ try:
 except ImportError:
     WINDOWS_NATIVE_AVAILABLE = False
 
+try:
+    import uiautomation as auto
+    UIAUTOMATION_AVAILABLE = True
+except ImportError:
+    UIAUTOMATION_AVAILABLE = False
+
 
 class WindowsController:
     """
-    Native Windows OS Controller for Aura:
+    Enhanced Native Windows OS Controller for Aura:
     - Zero-latency cursor positioning via Win32 SetCursorPos.
-    - Click simulation via SendInput / mouse_event.
-    - Inspects Windows UI Automation for Dynamic Magnetic Friction over clickable buttons.
+    - Click simulation via mouse_event (Left, Right, Double).
+    - Dynamic Magnetic Button Snapping using Windows UI Automation.
+    - Dwell-to-click engine with customizable dwell duration.
+    - Native hardware Zoom shortcut dispatch (Win + Plus / Win + Esc).
     - Global Hardware/Software Kill Switch (Spacebar toggle).
     """
 
     MOUSEEVENTF_LEFTDOWN = 0x0002
     MOUSEEVENTF_LEFTUP = 0x0004
+    MOUSEEVENTF_RIGHTDOWN = 0x0008
+    MOUSEEVENTF_RIGHTUP = 0x0010
+    VK_LWIN = 0x5B
+    VK_OEM_PLUS = 0xBB
+    VK_ESCAPE = 0x1B
+
+    # Magnetic intensity settings
+    MAGNETIC_MODES = {
+        "off": {"radius": 0, "friction": 1.0, "pull": 0.0},
+        "low": {"radius": 25, "friction": 0.65, "pull": 0.25},
+        "medium": {"radius": 45, "friction": 0.40, "pull": 0.50},
+        "high": {"radius": 70, "friction": 0.25, "pull": 0.75},
+        "ultra": {"radius": 95, "friction": 0.15, "pull": 0.90},
+    }
 
     def __init__(self, ws_url: str = "ws://127.0.0.1:8765"):
         self.ws_url = ws_url
@@ -34,8 +57,20 @@ class WindowsController:
         self.is_paused_by_failsafe: bool = False
         self.last_click_state: bool = False
 
-        self.enable_magnetic_friction: bool = True
+        # Magnetic snapping config
+        self.magnetic_mode: str = "high"
         self.current_friction_multiplier: float = 1.0
+
+        # Dwell to click config
+        self.dwell_enabled: bool = True
+        self.dwell_target_time: float = 1.0  # seconds
+        self.dwell_radius: float = 30.0      # pixels
+        self.dwell_anchor: Optional[Tuple[float, float]] = None
+        self.dwell_start_time: Optional[float] = None
+        self.dwell_triggered: bool = False
+
+        # Zoom state
+        self.is_zoomed: bool = False
 
         if WINDOWS_NATIVE_AVAILABLE:
             self.user32 = ctypes.windll.user32
@@ -51,7 +86,7 @@ class WindowsController:
                 if key == keyboard.Key.space:
                     self.is_enabled = not self.is_enabled
                     state_str = "ENABLED" if self.is_enabled else "KILLED / DISABLED"
-                    print(f"\n[Aura Win32 Killswitch] OS Mouse Control {state_str} via Spacebar!")
+                    print(f"\n[Aura Win32 Killswitch] OS Mouse Control {state_str} via Spacebar!", flush=True)
             except Exception:
                 pass
 
@@ -59,17 +94,41 @@ class WindowsController:
         self.key_listener.daemon = True
         self.key_listener.start()
 
-    def _check_accessibility_element(self, x: float, y: float) -> bool:
+    def trigger_zoom(self, state: Optional[bool] = None):
+        """Dispatches Windows Magnifier Zoom."""
+        if not self.user32:
+            return
+        if state is None:
+            self.is_zoomed = not self.is_zoomed
+        else:
+            self.is_zoomed = state
+
+        if self.is_zoomed:
+            self.user32.keybd_event(self.VK_LWIN, 0, 0, 0)
+            self.user32.keybd_event(self.VK_OEM_PLUS, 0, 0, 0)
+            time.sleep(0.04)
+            self.user32.keybd_event(self.VK_OEM_PLUS, 0, 2, 0)
+            self.user32.keybd_event(self.VK_LWIN, 0, 2, 0)
+            print("[WindowsController] Zoom In dispatched!", flush=True)
+        else:
+            self.user32.keybd_event(self.VK_LWIN, 0, 0, 0)
+            self.user32.keybd_event(self.VK_ESCAPE, 0, 0, 0)
+            time.sleep(0.04)
+            self.user32.keybd_event(self.VK_ESCAPE, 0, 2, 0)
+            self.user32.keybd_event(self.VK_LWIN, 0, 2, 0)
+            print("[WindowsController] Zoom Out dispatched!", flush=True)
+
+    def _apply_magnetic_attraction(self, x: float, y: float) -> Tuple[float, float]:
         """
-        Inspects element under cursor using Windows UI Automation.
-        Returns True if over a button, tab, or link.
+        Inspects element under/near cursor via UI Automation.
+        Snaps toward center of clickable buttons and applies magnetic friction.
         """
-        if not WINDOWS_NATIVE_AVAILABLE:
-            return False
+        cfg = self.MAGNETIC_MODES.get(self.magnetic_mode, self.MAGNETIC_MODES["medium"])
+        if cfg["radius"] == 0 or not UIAUTOMATION_AVAILABLE:
+            self.current_friction_multiplier = 1.0
+            return x, y
 
         try:
-            # Fallback check or UIAutomation inspect if uiautomation package is present
-            import uiautomation as auto
             element = auto.ControlFromPoint(int(x), int(y))
             if element and element.ControlType in [
                 auto.ControlType.ButtonControl,
@@ -77,41 +136,93 @@ class WindowsController:
                 auto.ControlType.HyperlinkControl,
                 auto.ControlType.CheckBoxControl,
                 auto.ControlType.RadioButtonControl,
+                auto.ControlType.MenuItemControl,
+                auto.ControlType.ListItemControl,
             ]:
-                return True
+                rect = element.BoundingRectangle
+                if rect:
+                    cx = (rect.left + rect.right) / 2.0
+                    cy = (rect.top + rect.bottom) / 2.0
+                    dist = math.hypot(x - cx, y - cy)
+
+                    if dist <= cfg["radius"]:
+                        self.current_friction_multiplier = cfg["friction"]
+                        # Attract cursor toward button center
+                        pulled_x = x + (cx - x) * cfg["pull"]
+                        pulled_y = y + (cy - y) * cfg["pull"]
+                        return pulled_x, pulled_y
+
         except Exception:
             pass
-        return False
+
+        self.current_friction_multiplier = 1.0
+        return x, y
+
+    def _update_dwell(self, x: float, y: float):
+        """Updates dwell-to-click timer based on cursor fixation."""
+        if not self.dwell_enabled or not self.is_enabled or self.is_paused_by_failsafe:
+            self.dwell_start_time = None
+            self.dwell_anchor = None
+            return
+
+        now = time.time()
+        if self.dwell_anchor is None:
+            self.dwell_anchor = (x, y)
+            self.dwell_start_time = now
+            self.dwell_triggered = False
+            return
+
+        dist = math.hypot(x - self.dwell_anchor[0], y - self.dwell_anchor[1])
+        if dist > self.dwell_radius:
+            # Moved beyond dwell circle, reset anchor
+            self.dwell_anchor = (x, y)
+            self.dwell_start_time = now
+            self.dwell_triggered = False
+        else:
+            # Still fixating in circle
+            dwell_duration = now - (self.dwell_start_time or now)
+            if dwell_duration >= self.dwell_target_time and not self.dwell_triggered:
+                self.dwell_triggered = True
+                self.click_mouse(x, y, "left")
+                print(f"[WindowsController] Dwell click triggered at ({int(x)}, {int(y)})!", flush=True)
 
     def move_mouse(self, x: float, y: float):
-        """Win32 SetCursorPos with magnetic friction."""
+        """Win32 SetCursorPos with magnetic snapping & dwell tracking."""
         if not self.is_enabled or self.is_paused_by_failsafe or not self.user32:
             return
 
-        # Check for sticky button friction
-        if self.enable_magnetic_friction and self._check_accessibility_element(x, y):
-            self.current_friction_multiplier = 0.35
-        else:
-            self.current_friction_multiplier = 1.0
+        final_x, final_y = self._apply_magnetic_attraction(x, y)
+        self.user32.SetCursorPos(int(final_x), int(final_y))
+        self._update_dwell(final_x, final_y)
 
-        self.user32.SetCursorPos(int(x), int(y))
-
-    def click_mouse(self, x: float, y: float):
-        """Win32 click simulation using SetCursorPos + mouse_event at exact coordinates."""
+    def click_mouse(self, x: float, y: float, button: str = "left"):
+        """Win32 click simulation using SetCursorPos + mouse_event."""
         if not self.is_enabled or self.is_paused_by_failsafe or not self.user32:
             return
 
-        # Explicitly pin cursor to target coordinate
         self.user32.SetCursorPos(int(x), int(y))
         time.sleep(0.005)
-        # Dispatch mouse down & up with dx=0, dy=0 so Windows does not add relative offset
-        self.user32.mouse_event(self.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-        time.sleep(0.025)  # 25ms click dwell
-        self.user32.mouse_event(self.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-        print(f"[Aura Windows Controller] Mouse Click dispatched at ({int(x)}, {int(y)})", flush=True)
+
+        if button == "right":
+            self.user32.mouse_event(self.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+            time.sleep(0.025)
+            self.user32.mouse_event(self.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+            print(f"[WindowsController] Right Click dispatched at ({int(x)}, {int(y)})", flush=True)
+        elif button == "double":
+            for _ in range(2):
+                self.user32.mouse_event(self.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                time.sleep(0.02)
+                self.user32.mouse_event(self.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                time.sleep(0.04)
+            print(f"[WindowsController] Double Click dispatched at ({int(x)}, {int(y)})", flush=True)
+        else:
+            self.user32.mouse_event(self.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+            time.sleep(0.025)
+            self.user32.mouse_event(self.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            print(f"[WindowsController] Left Click dispatched at ({int(x)}, {int(y)})", flush=True)
 
     async def run(self):
-        """Main loop listening to WebSocket telemetry stream with auto-reconnection."""
+        """Main loop listening to WebSocket telemetry stream."""
         while True:
             try:
                 print(f"[Aura Windows Controller] Connecting to telemetry stream at {self.ws_url}...")
@@ -121,18 +232,36 @@ class WindowsController:
 
                     async for message in websocket:
                         data = json.loads(message)
-                        if data.get("type") != "telemetry":
+                        msg_type = data.get("type")
+
+                        # Settings updates from frontend or voice commander
+                        if msg_type == "update_settings":
+                            if "dwell_time" in data:
+                                self.dwell_target_time = max(0.3, float(data["dwell_time"]))
+                                print(f"[WindowsController] Updated dwell time: {self.dwell_target_time}s")
+                            if "magnetic_intensity" in data:
+                                self.magnetic_mode = str(data["magnetic_intensity"]).lower()
+                                print(f"[WindowsController] Updated magnetic mode: {self.magnetic_mode}")
+                            if "gaze_enabled" in data:
+                                self.is_enabled = bool(data["gaze_enabled"])
+                            if "dwell_enabled" in data:
+                                self.dwell_enabled = bool(data["dwell_enabled"])
+                            if "trigger_zoom" in data:
+                                self.trigger_zoom(data.get("zoom_state"))
+                            continue
+
+                        if msg_type != "telemetry":
                             continue
 
                         raw_target_x = data.get("x", 0.0)
                         raw_target_y = data.get("y", 0.0)
                         click_intent = data.get("click", False)
+                        click_source = data.get("click_source", "none")
                         is_blink_locked = data.get("is_blink_locked", False)
                         abort_triggered = data.get("abort_triggered", False)
 
                         self.is_paused_by_failsafe = is_blink_locked or abort_triggered
 
-                        # If no face is detected, do not seize the OS mouse pointer
                         if not data.get("face_detected", False):
                             prev_x, prev_y = None, None
                             continue
@@ -140,7 +269,6 @@ class WindowsController:
                         if prev_x is None:
                             prev_x, prev_y = raw_target_x, raw_target_y
 
-                        # Apply magnetic friction multiplier
                         delta_x = (raw_target_x - prev_x) * self.current_friction_multiplier
                         delta_y = (raw_target_y - prev_y) * self.current_friction_multiplier
                         current_x = prev_x + delta_x
@@ -150,9 +278,11 @@ class WindowsController:
                         self.move_mouse(current_x, current_y)
 
                         if click_intent and not self.last_click_state:
-                            self.click_mouse(current_x, current_y)
+                            btn = "right" if click_source == "wink_right" else "left"
+                            self.click_mouse(current_x, current_y, btn)
 
                         self.last_click_state = click_intent
+
             except (websockets.exceptions.ConnectionClosed, ConnectionRefusedError, OSError) as e:
                 print(f"[Aura Windows Controller] Telemetry disconnected ({e}). Reconnecting in 1s...")
                 await asyncio.sleep(1.0)

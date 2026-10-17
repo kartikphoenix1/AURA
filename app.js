@@ -53,6 +53,8 @@ class AuraApp {
 
     this.initCanvas();
     this.initDOM();
+    this.initNovaPet();
+    this.initFloatingQuickBar();
     this.initWebSocket();
     this.initBubbleGrid();
     this.animate();
@@ -175,6 +177,272 @@ class AuraApp {
       };
     } catch (e) {
       setTimeout(() => this.initWebSocket(), 2000);
+    }
+  }
+
+  // --- NOVA LIQUID VOICE PET CONTROLLER ---
+  initNovaPet() {
+    this.petContainer = document.getElementById("pet-container");
+    this.blob = document.getElementById("blob");
+    this.petEyes = document.getElementById("pet-eyes");
+    this.dustCanvas = document.getElementById("dust-canvas");
+    this.petStatus = document.getElementById("pet-status");
+    this.isPetListening = false;
+    this.petDustParticles = [];
+
+    if (!this.dustCanvas) return;
+
+    const canvasSize = 300;
+    this.dustCanvas.width = canvasSize;
+    this.dustCanvas.height = canvasSize;
+    this.dustCtx = this.dustCanvas.getContext("2d");
+
+    for (let i = 0; i < 40; i++) {
+      this.petDustParticles.push({
+        x: Math.random() * canvasSize,
+        y: Math.random() * canvasSize,
+        size: Math.random() * 2 + 0.5,
+        angle: Math.random() * Math.PI * 2,
+        speed: Math.random() * 0.02 + 0.005,
+        radius: Math.random() * 120 + 30
+      });
+    }
+
+    window.addEventListener("mousedown", (e) => {
+      const ripple = document.createElement("div");
+      ripple.className = "ripple";
+      ripple.style.left = `${e.clientX}px`;
+      ripple.style.top = `${e.clientY}px`;
+      document.body.appendChild(ripple);
+      setTimeout(() => ripple.remove(), 800);
+    });
+
+    if (this.blob) {
+      this.blob.addEventListener("click", () => {
+        this.togglePetVoiceSession();
+      });
+    }
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRec) {
+      this.speechRec = new SpeechRec();
+      this.speechRec.continuous = true;
+      this.speechRec.interimResults = false;
+      this.speechRec.lang = "en-US";
+
+      this.speechRec.onresult = (e) => {
+        const last = e.results.length - 1;
+        const text = e.results[last][0].transcript.trim();
+        this.handleVoiceCommand(text);
+      };
+
+      this.speechRec.onstart = () => {
+        this.updatePetState("listening");
+      };
+
+      this.speechRec.onend = () => {
+        if (this.isPetListening) {
+          try { this.speechRec.start(); } catch (err) {}
+        } else {
+          this.updatePetState("idle");
+        }
+      };
+    }
+  }
+
+  togglePetVoiceSession() {
+    this.isPetListening = !this.isPetListening;
+    if (this.isPetListening) {
+      this.updatePetState("listening");
+      this.speakText("Nova is listening!");
+      if (this.speechRec) {
+        try { this.speechRec.start(); } catch (e) {}
+      }
+    } else {
+      this.updatePetState("idle");
+      if (this.speechRec) {
+        try { this.speechRec.stop(); } catch (e) {}
+      }
+    }
+  }
+
+  updatePetState(state) {
+    if (!this.blob) return;
+    if (state === "speaking") {
+      this.blob.className = "speaking";
+      if (this.petStatus) this.petStatus.textContent = "Nova is speaking...";
+    } else if (state === "listening") {
+      this.blob.className = "listening";
+      if (this.petStatus) this.petStatus.textContent = "Listening to your voice...";
+    } else {
+      this.blob.className = "";
+      if (this.petStatus) this.petStatus.textContent = "Click pet to wake up";
+    }
+  }
+
+  speakText(text) {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.1;
+      this.updatePetState("speaking");
+      utterance.onend = () => {
+        this.updatePetState(this.isPetListening ? "listening" : "idle");
+      };
+      window.speechSynthesis.speak(utterance);
+    }
+  }
+
+  handleVoiceCommand(text) {
+    const t = text.toLowerCase();
+    let reply = null;
+
+    if (t.includes("zoom in") || t === "zoom" || t.includes("magnify")) {
+      this.triggerZoom(true);
+      reply = "Zooming in at cursor!";
+    } else if (t.includes("zoom out") || t.includes("unzoom") || t.includes("exit zoom")) {
+      this.triggerZoom(false);
+      reply = "Exited zoom mode";
+    } else if (t.includes("scroll down") || t === "down") {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "voice_command", action: "scroll_down" }));
+      }
+      reply = "Scrolling down";
+    } else if (t.includes("scroll up") || t === "up") {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "voice_command", action: "scroll_up" }));
+      }
+      reply = "Scrolling up";
+    } else if (t.includes("right click")) {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "voice_command", action: "right_click" }));
+      }
+      reply = "Right clicked";
+    } else if (t.includes("click") || t.includes("left click")) {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "voice_command", action: "left_click" }));
+      }
+      reply = "Clicked";
+    } else if (t.includes("hey nova") || t.includes("hello") || t === "nova") {
+      reply = "Hello! I am Nova, your voice companion.";
+    } else {
+      reply = `Heard: "${text}"`;
+    }
+
+    if (this.petStatus) {
+      this.petStatus.textContent = `🗣️ "${text}" → ${reply}`;
+    }
+    if (reply) {
+      this.speakText(reply);
+    }
+  }
+
+  triggerZoom(state) {
+    const zoomBtn = document.getElementById("quick-toggle-zoom");
+    if (state === undefined) {
+      this.isZoomActive = !this.isZoomActive;
+    } else {
+      this.isZoomActive = state;
+    }
+    if (zoomBtn) {
+      if (this.isZoomActive) zoomBtn.classList.add("active");
+      else zoomBtn.classList.remove("active");
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: "update_settings",
+        trigger_zoom: true,
+        zoom_state: this.isZoomActive
+      }));
+    }
+  }
+
+  // --- PERSISTENT FLOATING QUICK-BAR (BOTTOM-LEFT) ---
+  initFloatingQuickBar() {
+    const quickBar = document.getElementById("floating-quick-bar");
+    const collapseBtn = document.getElementById("btn-quick-collapse");
+    const camToggle = document.getElementById("quick-toggle-cam");
+    const voiceToggle = document.getElementById("quick-toggle-voice");
+    const gazeToggle = document.getElementById("quick-toggle-gaze");
+    const zoomToggle = document.getElementById("quick-toggle-zoom");
+    const dwellSlider = document.getElementById("quick-dwell-slider");
+    const dwellVal = document.getElementById("quick-dwell-val");
+    const magnetSlider = document.getElementById("quick-magnet-slider");
+    const magnetVal = document.getElementById("quick-magnet-val");
+
+    if (!quickBar) return;
+
+    if (collapseBtn) {
+      collapseBtn.addEventListener("click", () => {
+        quickBar.classList.toggle("collapsed");
+        collapseBtn.textContent = quickBar.classList.contains("collapsed") ? "+" : "−";
+      });
+    }
+
+    if (camToggle) {
+      camToggle.addEventListener("click", () => {
+        camToggle.classList.toggle("active");
+        const isActive = camToggle.classList.contains("active");
+        camToggle.textContent = isActive ? "📷 Cam: ON" : "📷 Cam: OFF";
+      });
+    }
+
+    if (voiceToggle) {
+      voiceToggle.addEventListener("click", () => {
+        this.togglePetVoiceSession();
+        voiceToggle.classList.toggle("active", this.isPetListening);
+        voiceToggle.textContent = this.isPetListening ? "🎤 Voice: ON" : "🎤 Voice: OFF";
+      });
+    }
+
+    if (gazeToggle) {
+      gazeToggle.addEventListener("click", () => {
+        gazeToggle.classList.toggle("active");
+        const isGazeActive = gazeToggle.classList.contains("active");
+        gazeToggle.textContent = isGazeActive ? "👁️ Gaze: ON" : "👁️ Gaze: OFF";
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: "update_settings",
+            gaze_enabled: isGazeActive
+          }));
+        }
+      });
+    }
+
+    if (zoomToggle) {
+      zoomToggle.addEventListener("click", () => {
+        this.triggerZoom();
+      });
+    }
+
+    if (dwellSlider && dwellVal) {
+      dwellSlider.addEventListener("input", (e) => {
+        const val = parseFloat(e.target.value).toFixed(1);
+        dwellVal.textContent = `${val}s`;
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: "update_settings",
+            dwell_time: parseFloat(val)
+          }));
+        }
+      });
+    }
+
+    const magnetLabels = ["Off", "Low (25px)", "Med (45px)", "High (70px)", "Ultra (95px)"];
+    const magnetModes = ["off", "low", "medium", "high", "ultra"];
+    if (magnetSlider && magnetVal) {
+      magnetSlider.addEventListener("input", (e) => {
+        const idx = parseInt(e.target.value);
+        magnetVal.textContent = magnetLabels[idx] || "High";
+        const mode = magnetModes[idx] || "high";
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: "update_settings",
+            magnetic_intensity: mode
+          }));
+        }
+      });
     }
   }
 
@@ -376,6 +644,16 @@ class AuraApp {
   }
 
   handleServerResponse(msg) {
+    if (msg.type === "voice_feedback") {
+      this.updatePetState("speaking");
+      if (this.petStatus) {
+        this.petStatus.textContent = `🗣️ "${msg.heard}" → ${msg.response}`;
+      }
+      this.speakText(msg.response);
+      setTimeout(() => this.updatePetState(this.isPetListening ? "listening" : "idle"), 3000);
+      return;
+    }
+
     if (msg.status === "gaze_calibration_finished") {
       const diag = msg.diagnostics;
       document.getElementById("val-overall-err").textContent = diag.overall_mean_px.toFixed(1) + " px";
@@ -764,6 +1042,35 @@ class AuraApp {
 
       document.getElementById("pupil-left").style.transform = `translate(${px}px, ${py}px)`;
       document.getElementById("pupil-right").style.transform = `translate(${px}px, ${py}px)`;
+    }
+
+    // 5. Update Nova Liquid Voice Pet Dust & Eye Parallax
+    if (this.dustCtx && this.dustCanvas) {
+      const cx = this.dustCanvas.width / 2;
+      const cy = this.dustCanvas.height / 2;
+      this.dustCtx.clearRect(0, 0, this.dustCanvas.width, this.dustCanvas.height);
+
+      this.petDustParticles.forEach(p => {
+        p.angle += p.speed;
+        const x = cx + Math.cos(p.angle) * p.radius;
+        const y = cy + Math.sin(p.angle) * p.radius;
+        this.dustCtx.beginPath();
+        this.dustCtx.arc(x, y, p.size, 0, Math.PI * 2);
+        this.dustCtx.fillStyle = `rgba(255, 215, 0, ${Math.random() * 0.4 + 0.3})`;
+        this.dustCtx.fill();
+      });
+    }
+
+    if (this.petEyes) {
+      const petCenterX = window.innerWidth / 2;
+      const petCenterY = window.innerHeight / 2;
+      const dx = this.cursorX - petCenterX;
+      const dy = this.cursorY - petCenterY;
+      const distance = Math.min(Math.hypot(dx, dy), 120);
+      const angle = Math.atan2(dy, dx);
+      const eyeOffsetX = Math.cos(angle) * (distance * 0.15);
+      const eyeOffsetY = Math.sin(angle) * (distance * 0.15);
+      this.petEyes.style.transform = `translate(calc(-50% + ${eyeOffsetX}px), calc(-50% + ${eyeOffsetY}px))`;
     }
 
     requestAnimationFrame(() => this.animate());

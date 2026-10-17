@@ -82,6 +82,15 @@ def main():
     os_controller_thread.start()
     print("[Aura Launcher] OS Mouse Controller initialized (Press SPACEBAR for emergency kill switch).")
 
+    # 3.5. Start Voice Commander & Nova Voice Pet Engine
+    try:
+        from voice_commander import VoiceCommander
+        voice_cmd = VoiceCommander()
+        voice_cmd.start()
+        print("[Aura Launcher] Voice Commander running (Say 'zoom', 'scroll down', 'click', 'hey nova').")
+    except Exception as e:
+        print(f"[Aura Launcher] Voice Commander warning: {e}")
+
     # 4. Launch Native Standalone Desktop Window
     ui_url = "http://127.0.0.1:5173"
     print("[Aura Launcher] Booting Standalone Desktop Window...")

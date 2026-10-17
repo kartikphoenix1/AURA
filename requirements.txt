@@ -10,6 +10,9 @@ opencv-python>=4.7.0
 requests
 pywebview>=5.0.0
 pynput>=1.8.0
+SpeechRecognition>=3.10.0
+mss>=9.0.0
+uiautomation>=2.0.0
 # macOS-only — install manually on macOS:
 # pyobjc-framework-Quartz
 # pyobjc-framework-ApplicationServices

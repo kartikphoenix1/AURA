@@ -387,6 +387,16 @@ class AuraEngineServer:
                 self.filter.deadband_radius = radius
                 await websocket.send(json.dumps({"status": "deadband_updated", "radius": radius}))
 
+            # Forward settings and voice updates to all connected clients
+            if data.get("type") in ["update_settings", "voice_feedback", "voice_command"]:
+                payload = json.dumps(data)
+                for client in list(self.clients):
+                    if client != websocket:
+                        try:
+                            await client.send(payload)
+                        except Exception:
+                            pass
+
         except Exception as e:
             await websocket.send(json.dumps({"error": str(e)}))
 
