@@ -2,8 +2,8 @@ import sys
 import platform
 import asyncio
 
-from aura_engine.os_bridge.macos_controller import MacOSController
-from aura_engine.os_bridge.windows_controller import WindowsController
+from macos_controller import MacOSController
+from windows_controller import WindowsController
 
 
 class LinuxController:

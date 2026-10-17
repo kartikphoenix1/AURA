@@ -13,7 +13,14 @@ from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
-DEFAULT_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "face_landmarker.task")
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_MODEL_PATH = os.path.join(_BASE_DIR, "models", "face_landmarker.task")
+# Fallback: accept the model if it was placed directly in the project root
+_ROOT_MODEL = os.path.join(_BASE_DIR, "face_landmarker.task")
+if os.path.exists(_ROOT_MODEL) and not os.path.exists(DEFAULT_MODEL_PATH):
+    import shutil
+    os.makedirs(os.path.dirname(DEFAULT_MODEL_PATH), exist_ok=True)
+    shutil.copy2(_ROOT_MODEL, DEFAULT_MODEL_PATH)
 
 
 def ensure_model_downloaded(model_path: str = DEFAULT_MODEL_PATH) -> str:
@@ -32,14 +39,14 @@ class FaceGazeTracker:
     using MediaPipe Tasks Vision FaceLandmarker.
     """
 
-    # 3D Reference points from anthropometric face model (in mm)
+    # 3D Reference points from anthropometric face model (in mm, OpenCV image coordinates: +Y down, +X right)
     FACE_3D_MODEL = np.array([
         [0.0, 0.0, 0.0],          # Nose tip (#1)
-        [0.0, -330.0, -65.0],      # Chin (#152)
-        [-225.0, 170.0, -135.0],   # Left eye outer corner (#33)
-        [225.0, 170.0, -135.0],    # Right eye outer corner (#263)
-        [-150.0, -150.0, -125.0],  # Left mouth corner (#61)
-        [150.0, -150.0, -125.0]    # Right mouth corner (#291)
+        [0.0, 330.0, -65.0],       # Chin (#152)
+        [-225.0, -170.0, -135.0],  # Left eye outer corner (#33)
+        [225.0, -170.0, -135.0],   # Right eye outer corner (#263)
+        [-150.0, 150.0, -125.0],   # Left mouth corner (#61)
+        [150.0, 150.0, -125.0]     # Right mouth corner (#291)
     ], dtype=np.float64)
 
     # Corresponding MediaPipe landmark indices
@@ -88,6 +95,8 @@ class FaceGazeTracker:
 
         # State tracking
         self.blink_start_time: Optional[float] = None
+        self.blink_click_duration: float = 0.40  # 400ms deliberate blink triggers a click
+        self.blink_click_dispatched: bool = False
         self.is_blink_locked: bool = False
         self.frame_timestamp_ms: int = 0
 
@@ -125,21 +134,12 @@ class FaceGazeTracker:
             return 0.0, 0.0, 0.0
 
         rmat, _ = cv2.Rodrigues(rvec)
-        # Extract Euler angles
-        sy = math.sqrt(rmat[0, 0] * rmat[0, 0] + rmat[1, 0] * rmat[1, 0])
-        singular = sy < 1e-6
-
-        if not singular:
-            pitch = math.atan2(rmat[2, 1], rmat[2, 2])
-            yaw = math.atan2(-rmat[2, 0], sy)
-            roll = math.atan2(rmat[1, 0], rmat[0, 0])
-        else:
-            pitch = math.atan2(-rmat[1, 2], rmat[1, 1])
-            yaw = math.atan2(-rmat[2, 0], sy)
-            roll = 0.0
-
-        # Convert to degrees
-        return math.degrees(yaw), math.degrees(pitch), math.degrees(roll)
+        # Extract Euler angles in degrees via standard RQ decomposition
+        angles, _, _, _, _, _ = cv2.RQDecomp3x3(rmat)
+        pitch = float(angles[0])
+        yaw = float(angles[1])
+        roll = float(angles[2])
+        return yaw, pitch, roll
 
     def _calculate_iris_ratios(self, landmarks: List[Any]) -> Tuple[float, float]:
         """
@@ -230,16 +230,27 @@ class FaceGazeTracker:
         )
 
         now = time.time()
+        blink_click = False
+
         if both_eyes_blinking:
             if self.blink_start_time is None:
                 self.blink_start_time = now
-            elif (now - self.blink_start_time) >= self.long_blink_duration:
-                # Toggle cursor lock failsafe
-                self.is_blink_locked = not self.is_blink_locked
-                # Reset timer so it doesn't immediately toggle back
-                self.blink_start_time = now + 1.0
+                self.blink_click_dispatched = False
+            else:
+                elapsed = now - self.blink_start_time
+                # Intentional long blink (0.40s) triggers a click!
+                if elapsed >= self.blink_click_duration and not self.blink_click_dispatched and elapsed < 1.6:
+                    blink_click = True
+                    self.blink_click_dispatched = True
+                    print(f"[FaceTracker] Long-blink click triggered! (held for {elapsed:.2f}s)", flush=True)
+                elif elapsed >= 1.8 and not self.is_blink_locked:
+                    self.is_blink_locked = True
+                    print("[FaceTracker] Extended eye closure (>1.8s) - resting cursor.", flush=True)
         else:
+            if self.is_blink_locked and self.blink_start_time is not None:
+                self.is_blink_locked = False
             self.blink_start_time = None
+            self.blink_click_dispatched = False
 
         # 5. Extreme pitch abort (head tilted sharply up toward ceiling)
         abort_triggered = pitch >= self.extreme_pitch_abort_deg
@@ -258,6 +269,8 @@ class FaceGazeTracker:
             "dynamic_blink_thresh": dynamic_blink_threshold,
             "is_blink_locked": self.is_blink_locked,
             "abort_triggered": abort_triggered,
+            "blink_click": blink_click,
+            "is_eyes_closed": bool(both_eyes_blinking),
         }
 
     def close(self):

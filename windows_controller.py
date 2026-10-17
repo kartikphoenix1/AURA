@@ -97,57 +97,68 @@ class WindowsController:
         self.user32.SetCursorPos(int(x), int(y))
 
     def click_mouse(self, x: float, y: float):
-        """Win32 SendInput / mouse_event click simulation."""
+        """Win32 click simulation using SetCursorPos + mouse_event at exact coordinates."""
         if not self.is_enabled or self.is_paused_by_failsafe or not self.user32:
             return
 
-        self.user32.mouse_event(self.MOUSEEVENTF_LEFTDOWN, int(x), int(y), 0, 0)
-        time.sleep(0.015)  # 15ms click dwell
-        self.user32.mouse_event(self.MOUSEEVENTF_LEFTUP, int(x), int(y), 0, 0)
-        print(f"[Aura Windows Controller] Click dispatched at ({x:.1f}, {y:.1f})")
+        # Explicitly pin cursor to target coordinate
+        self.user32.SetCursorPos(int(x), int(y))
+        time.sleep(0.005)
+        # Dispatch mouse down & up with dx=0, dy=0 so Windows does not add relative offset
+        self.user32.mouse_event(self.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        time.sleep(0.025)  # 25ms click dwell
+        self.user32.mouse_event(self.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        print(f"[Aura Windows Controller] Mouse Click dispatched at ({int(x)}, {int(y)})", flush=True)
 
     async def run(self):
-        """Main loop listening to WebSocket telemetry stream."""
-        print(f"[Aura Windows Controller] Connecting to telemetry stream at {self.ws_url}...")
-        async with websockets.connect(self.ws_url) as websocket:
-            print("[Aura Windows Controller] Connected! Press [SPACEBAR] at any time for emergency Kill Switch.")
-
-            prev_x, prev_y = None, None
-
-            async for message in websocket:
-                data = json.loads(message)
-                if data.get("type") != "telemetry":
-                    continue
-
-                raw_target_x = data.get("x", 0.0)
-                raw_target_y = data.get("y", 0.0)
-                click_intent = data.get("click", False)
-                is_blink_locked = data.get("is_blink_locked", False)
-                abort_triggered = data.get("abort_triggered", False)
-
-                self.is_paused_by_failsafe = is_blink_locked or abort_triggered
-
-                # If no face is detected, do not seize the OS mouse pointer
-                if not data.get("face_detected", False):
+        """Main loop listening to WebSocket telemetry stream with auto-reconnection."""
+        while True:
+            try:
+                print(f"[Aura Windows Controller] Connecting to telemetry stream at {self.ws_url}...")
+                async with websockets.connect(self.ws_url) as websocket:
+                    print("[Aura Windows Controller] Connected! Press [SPACEBAR] at any time for emergency Kill Switch.")
                     prev_x, prev_y = None, None
-                    continue
 
-                if prev_x is None:
-                    prev_x, prev_y = raw_target_x, raw_target_y
+                    async for message in websocket:
+                        data = json.loads(message)
+                        if data.get("type") != "telemetry":
+                            continue
 
-                # Apply magnetic friction multiplier
-                delta_x = (raw_target_x - prev_x) * self.current_friction_multiplier
-                delta_y = (raw_target_y - prev_y) * self.current_friction_multiplier
-                current_x = prev_x + delta_x
-                current_y = prev_y + delta_y
-                prev_x, prev_y = current_x, current_y
+                        raw_target_x = data.get("x", 0.0)
+                        raw_target_y = data.get("y", 0.0)
+                        click_intent = data.get("click", False)
+                        is_blink_locked = data.get("is_blink_locked", False)
+                        abort_triggered = data.get("abort_triggered", False)
 
-                self.move_mouse(current_x, current_y)
+                        self.is_paused_by_failsafe = is_blink_locked or abort_triggered
 
-                if click_intent and not self.last_click_state:
-                    self.click_mouse(current_x, current_y)
+                        # If no face is detected, do not seize the OS mouse pointer
+                        if not data.get("face_detected", False):
+                            prev_x, prev_y = None, None
+                            continue
 
-                self.last_click_state = click_intent
+                        if prev_x is None:
+                            prev_x, prev_y = raw_target_x, raw_target_y
+
+                        # Apply magnetic friction multiplier
+                        delta_x = (raw_target_x - prev_x) * self.current_friction_multiplier
+                        delta_y = (raw_target_y - prev_y) * self.current_friction_multiplier
+                        current_x = prev_x + delta_x
+                        current_y = prev_y + delta_y
+                        prev_x, prev_y = current_x, current_y
+
+                        self.move_mouse(current_x, current_y)
+
+                        if click_intent and not self.last_click_state:
+                            self.click_mouse(current_x, current_y)
+
+                        self.last_click_state = click_intent
+            except (websockets.exceptions.ConnectionClosed, ConnectionRefusedError, OSError) as e:
+                print(f"[Aura Windows Controller] Telemetry disconnected ({e}). Reconnecting in 1s...")
+                await asyncio.sleep(1.0)
+            except Exception as e:
+                print(f"[Aura Windows Controller] Unexpected error: {e}. Retrying in 1s...")
+                await asyncio.sleep(1.0)
 
 
 if __name__ == "__main__":

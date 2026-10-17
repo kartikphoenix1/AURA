@@ -161,7 +161,13 @@ class AuraApp {
       this.ws.onclose = () => {
         statusPill.textContent = "WebSocket Offline (Reconnecting...)";
         statusPill.className = "status-pill offline";
-        setTimeout(() => this.initWebSocket(), 2000);
+        if (!this._wsReconnecting) {
+          this._wsReconnecting = true;
+          setTimeout(() => {
+            this._wsReconnecting = false;
+            this.initWebSocket();
+          }, 2000);
+        }
       };
 
       this.ws.onerror = () => {
@@ -183,7 +189,33 @@ class AuraApp {
     const buddyCap = document.getElementById("buddy-cap");
     const buddySpeech = document.getElementById("buddy-speech");
 
-    if (this.isBlinkLocked) {
+    // Update Camera status pill
+    const cameraPill = document.getElementById("status-camera");
+    const isDark = (typeof data.camera_brightness === "number" && data.camera_brightness < 5.0);
+
+    if (data.camera_connected && data.face_detected) {
+      cameraPill.textContent = "📷 Camera: Tracking Face";
+      cameraPill.className = "status-pill tracking";
+    } else if (data.camera_connected) {
+      if (isDark) {
+        cameraPill.textContent = "📷 Camera: Shutter Closed / Dark";
+        cameraPill.className = "status-pill paused";
+      } else {
+        cameraPill.textContent = "📷 Camera: Scanning for Face...";
+        cameraPill.className = "status-pill searching";
+      }
+    } else {
+      cameraPill.textContent = "📷 Camera: Offline";
+      cameraPill.className = "status-pill offline";
+    }
+
+    if (!data.camera_connected) {
+      buddySpeech.textContent = "Camera disconnected!";
+    } else if (isDark) {
+      buddySpeech.textContent = "Webcam lens is covered or closed!";
+    } else if (!data.face_detected) {
+      buddySpeech.textContent = "Look into the camera!";
+    } else if (this.isBlinkLocked) {
       failsafePill.textContent = "Long-Blink: Cursor Paused";
       failsafePill.className = "status-pill paused";
       buddyCap.classList.remove("hidden");
@@ -197,6 +229,21 @@ class AuraApp {
       failsafePill.className = "status-pill normal";
       buddyCap.classList.add("hidden");
       buddySpeech.textContent = "Pippin is watching!";
+    }
+
+    // Update lock status span in diagnostics
+    const lockStatus = document.getElementById("t-lock-status");
+    if (lockStatus) {
+      if (this.isBlinkLocked) {
+        lockStatus.textContent = "LOCKED (Long Blink)";
+        lockStatus.style.color = "var(--accent-amber)";
+      } else if (this.isAbortTriggered) {
+        lockStatus.textContent = "ABORTED (Extreme Pitch)";
+        lockStatus.style.color = "var(--accent-red)";
+      } else {
+        lockStatus.textContent = "Active";
+        lockStatus.style.color = "var(--accent-green)";
+      }
     }
 
     // Diagnostics panel updates

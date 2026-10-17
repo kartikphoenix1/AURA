@@ -1,6 +1,7 @@
 numpy>=1.23.0
 scipy>=1.9.0
 scikit-learn>=1.2.0
+joblib>=1.2.0
 mediapipe>=0.10.9
 sounddevice>=0.4.6
 librosa>=0.10.0
@@ -9,6 +10,7 @@ opencv-python>=4.7.0
 requests
 pywebview>=5.0.0
 pynput>=1.8.0
-pyobjc-framework-Quartz
-pyobjc-framework-ApplicationServices
-pyobjc-framework-AVFoundation
+# macOS-only — install manually on macOS:
+# pyobjc-framework-Quartz
+# pyobjc-framework-ApplicationServices
+# pyobjc-framework-AVFoundation

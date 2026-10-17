@@ -29,13 +29,14 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 os.environ["MPLCONFIGDIR"] = "/tmp/mpl"
 sys.path.insert(0, BASE_DIR)
 
-from aura_engine.server import AuraEngineServer
-from aura_engine.os_bridge.system_controller import get_controller
+from server import AuraEngineServer
+from system_controller import get_controller
 
 
 class QuietHTTPHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        ui_dir = os.path.join(BASE_DIR, "aura_ui")
+        aura_ui_dir = os.path.join(BASE_DIR, "aura_ui")
+        ui_dir = aura_ui_dir if os.path.isdir(aura_ui_dir) else BASE_DIR
         super().__init__(*args, directory=ui_dir, **kwargs)
 
     def log_message(self, format, *args):

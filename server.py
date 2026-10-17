@@ -34,14 +34,15 @@ import numpy as np
 import sounddevice as sd
 import websockets
 
-from aura_engine.vision.face_tracker import FaceGazeTracker
-from aura_engine.vision.calibration import GazeCalibration
-from aura_engine.vision.one_euro_filter import DeadbandOneEuroFilter2D
-from aura_engine.audio.classifier import AcousticClassifier
+from face_tracker import FaceGazeTracker
+from calibration import GazeCalibration
+from one_euro_filter import DeadbandOneEuroFilter2D
+from classifier import AcousticClassifier
 
 PORT = 8765
-CALIBRATION_PATH = os.path.join(os.path.dirname(__file__), "models", "gaze_calibration.joblib")
-AUDIO_MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "acoustic_model.joblib")
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CALIBRATION_PATH = os.path.join(_BASE_DIR, "models", "gaze_calibration.joblib")
+AUDIO_MODEL_PATH = os.path.join(_BASE_DIR, "models", "acoustic_model.joblib")
 
 
 class AuraEngineServer:
@@ -94,6 +95,11 @@ class AuraEngineServer:
 
         # Shared state for thread safety
         self.running = False
+        self.blink_click_until: float = 0.0
+        self.audio_click_active: bool = False
+        self.last_valid_smooth_x: float = self.screen_w / 2.0
+        self.last_valid_smooth_y: float = self.screen_h / 2.0
+
         self.latest_telemetry: Dict[str, Any] = {
             "type": "telemetry",
             "timestamp": time.time(),
@@ -103,12 +109,14 @@ class AuraEngineServer:
             "screen_h": self.screen_h,
             "face_detected": False,
             "camera_connected": False,
+            "camera_brightness": 0.0,
             "click": False,
             "click_confidence": 0.0,
+            "click_source": "none",
             "is_blink_locked": False,
             "abort_triggered": False,
             "raw_pose": {"yaw": 0.0, "pitch": 0.0, "roll": 0.0},
-            "audio": {"rms": 0.0, "noise_floor": 0.005, "is_above_gate": False},
+            "audio": {"rms": 0.0, "noise_floor": 0.005, "current_gate": 0.015, "is_above_gate": False},
         }
 
         # Audio rolling circular buffer (last 2 seconds at 16kHz)
@@ -147,7 +155,7 @@ class AuraEngineServer:
             candidate = self.audio_buffer[-3200:]
             is_click, confidence, _ = self.audio_classifier.classify_audio(candidate)
 
-        self.latest_telemetry["click"] = bool(is_click)
+        self.audio_click_active = bool(is_click)
         self.latest_telemetry["click_confidence"] = float(confidence)
         self.latest_telemetry["audio"] = {
             "rms": rms,
@@ -175,14 +183,12 @@ class AuraEngineServer:
                 try:
                     cap = cv2.VideoCapture(idx, backend)
                     if cap.isOpened():
-                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                         ret, test_frame = cap.read()
                         if ret and test_frame is not None:
-                            print(f"[AuraServer] Camera opened successfully on index {idx} (backend={backend})!")
+                            print(f"[AuraServer] Camera opened successfully on index {idx} (backend={backend})!", flush=True)
                             return cap, idx
                         cap.release()
-                except Exception:
+                except Exception as e:
                     pass
         return None, None
 
@@ -190,12 +196,13 @@ class AuraEngineServer:
         """Vision capture thread running at camera native FPS."""
         cap, active_idx = self._open_camera()
         last_retry_time = time.time()
+        consecutive_read_failures = 0
 
         if cap is None:
-            print("[AuraServer] Waiting for camera authorization/connection... (Will retry automatically)")
+            print("[AuraServer] Waiting for camera connection... (Will retry automatically)", flush=True)
 
         while self.running:
-            # If camera not yet connected, periodically attempt reconnection
+            # If camera not yet connected or failed, periodically attempt reconnection
             if cap is None or not cap.isOpened():
                 self.latest_telemetry["camera_connected"] = False
                 self.latest_telemetry["face_detected"] = False
@@ -203,41 +210,77 @@ class AuraEngineServer:
                 if now - last_retry_time > 2.0:
                     last_retry_time = now
                     cap, active_idx = self._open_camera()
-                time.sleep(0.04)
+                time.sleep(0.05)
                 continue
 
-            self.latest_telemetry["camera_connected"] = True
-            ret, frame = cap.read()
+            try:
+                ret, frame = cap.read()
+            except Exception as e:
+                ret, frame = False, None
+
             if not ret or frame is None:
+                consecutive_read_failures += 1
                 self.latest_telemetry["face_detected"] = False
-                time.sleep(0.015)
+                if consecutive_read_failures > 15:
+                    self.latest_telemetry["camera_connected"] = False
+                    print("[AuraServer] Camera dropped frames. Reopening...", flush=True)
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                    cap = None
+                time.sleep(0.03)
                 continue
 
-            res = self.tracker.process_frame(frame)
+            consecutive_read_failures = 0
+            self.latest_telemetry["camera_connected"] = True
+            brightness = float(np.mean(frame))
+            self.latest_telemetry["camera_brightness"] = brightness
+
+            try:
+                res = self.tracker.process_frame(frame)
+            except Exception as e:
+                print(f"[AuraServer] Face tracker warning: {e}", flush=True)
+                res = None
+
             if res is not None:
                 self.latest_telemetry["face_detected"] = True
                 feat = res["features"]  # [yaw, pitch, iris_x, iris_y]
 
-                # If in target recording mode for calibration
-                if self.is_recording_target and self.recording_target_id is not None:
-                    self.recorded_target_frames.append(feat)
+                # Trigger blink click pulse
+                if res.get("blink_click"):
+                    self.blink_click_until = time.time() + 0.15
+                    print(f"[AuraServer] Dispatched Blink Click at ({self.latest_telemetry.get('x'):.0f}, {self.latest_telemetry.get('y'):.0f})", flush=True)
 
-                # Map to screen coordinates
-                if self.calibration.model_x is not None:
-                    raw_x, raw_y = self.calibration.predict(feat)
+                # If eyes are closed during blink, pin cursor to previous coordinates so it does not drift
+                if res.get("is_eyes_closed"):
+                    smooth_x = self.last_valid_smooth_x
+                    smooth_y = self.last_valid_smooth_y
                 else:
-                    # Responsive default gaze estimate (mirrored for natural webcam feel)
-                    head_x = (-res["yaw"] / 22.0 + 0.5) * self.screen_w
-                    head_y = (res["pitch"] / 18.0 + 0.5) * self.screen_h
-                    # Iris fine offset
-                    iris_offset_x = (res["iris_x"] - 0.5) * 350.0
-                    iris_offset_y = (res["iris_y"] - 0.5) * 250.0
+                    # If in target recording mode for calibration
+                    if self.is_recording_target and self.recording_target_id is not None:
+                        self.recorded_target_frames.append(feat)
 
-                    raw_x = max(0.0, min(float(self.screen_w), head_x - iris_offset_x))
-                    raw_y = max(0.0, min(float(self.screen_h), head_y + iris_offset_y))
+                    # Map to screen coordinates
+                    if self.calibration.model_x is not None:
+                        raw_x, raw_y = self.calibration.predict(feat)
+                    else:
+                        # Responsive default gaze estimate (mirrored for natural webcam feel)
+                        # Comfortable range to effortlessly reach Start button and all 4 corners
+                        head_x = (-res["yaw"] / 18.0 + 0.5) * self.screen_w
+                        # Tilting up (positive pitch) moves toward top of screen (0); looking down reaches taskbar
+                        head_y = (-res["pitch"] / 14.0 + 0.5) * self.screen_h
+                        # Iris fine offset
+                        iris_offset_x = (res["iris_x"] - 0.5) * 400.0
+                        iris_offset_y = (res["iris_y"] - 0.5) * 300.0
 
-                # Apply Deadband + One Euro Filter
-                smooth_x, smooth_y = self.filter.filter(raw_x, raw_y)
+                        raw_x = max(0.0, min(float(self.screen_w), head_x - iris_offset_x))
+                        raw_y = max(0.0, min(float(self.screen_h), head_y + iris_offset_y))
+
+                    # Apply Deadband + One Euro Filter
+                    smooth_x, smooth_y = self.filter.filter(raw_x, raw_y)
+                    self.last_valid_smooth_x = smooth_x
+                    self.last_valid_smooth_y = smooth_y
 
                 # Update telemetry
                 self.latest_telemetry["x"] = float(smooth_x)
@@ -360,8 +403,20 @@ class AuraEngineServer:
     async def _broadcast_telemetry_loop(self):
         """Broadcasts telemetry packet to all connected clients at 60Hz."""
         while self.running:
+            now = time.time()
+            is_blink_clicking = (now < self.blink_click_until)
+            is_clicking = bool(self.audio_click_active or is_blink_clicking)
+            self.latest_telemetry["click"] = is_clicking
+            if is_blink_clicking:
+                self.latest_telemetry["click_confidence"] = 1.0
+                self.latest_telemetry["click_source"] = "blink"
+            elif self.audio_click_active:
+                self.latest_telemetry["click_source"] = "audio"
+            else:
+                self.latest_telemetry["click_source"] = "none"
+
             if self.clients:
-                self.latest_telemetry["timestamp"] = time.time()
+                self.latest_telemetry["timestamp"] = now
                 payload = json.dumps(self.latest_telemetry)
                 # Broadcast concurrently
                 await asyncio.gather(
