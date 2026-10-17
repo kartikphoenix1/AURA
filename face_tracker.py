@@ -271,6 +271,7 @@ class FaceGazeTracker:
             "abort_triggered": abort_triggered,
             "blink_click": blink_click,
             "is_eyes_closed": bool(both_eyes_blinking),
+            "landmarks": landmarks,
         }
 
     def close(self):

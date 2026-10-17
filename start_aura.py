@@ -24,6 +24,7 @@ if os.path.exists(venv_py) and os.path.realpath(sys.executable) != os.path.realp
 import time
 import threading
 import asyncio
+import subprocess
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 os.environ["MPLCONFIGDIR"] = "/tmp/mpl"
@@ -90,6 +91,20 @@ def main():
         print("[Aura Launcher] Voice Commander running (Say 'zoom', 'scroll down', 'click', 'hey nova').")
     except Exception as e:
         print(f"[Aura Launcher] Voice Commander warning: {e}")
+
+    # 3.6. Launch Virtual Eye Cursor & Overlays
+    sub_procs = []
+    for mod_name in ["eye_cursor_overlay.py", "floating_pet.py", "camera_overlay.py"]:
+        try:
+            p = subprocess.Popen(
+                [sys.executable, os.path.join(BASE_DIR, mod_name)],
+                cwd=BASE_DIR,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+            )
+            sub_procs.append(p)
+            print(f"[Aura Launcher] Overlay '{mod_name}' started successfully.")
+        except Exception as e:
+            print(f"[Aura Launcher] Could not start overlay '{mod_name}': {e}")
 
     # 4. Launch Native Standalone Desktop Window
     ui_url = "http://127.0.0.1:5173"

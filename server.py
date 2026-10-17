@@ -38,6 +38,7 @@ from face_tracker import FaceGazeTracker
 from calibration import GazeCalibration
 from one_euro_filter import DeadbandOneEuroFilter2D
 from classifier import AcousticClassifier
+from gaze_engine import GazeEngine
 
 PORT = 8765
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -74,6 +75,7 @@ class AuraEngineServer:
         self.tracker = FaceGazeTracker()
         self.calibration = GazeCalibration(screen_w=self.screen_w, screen_h=self.screen_h)
         self.filter = DeadbandOneEuroFilter2D(deadband_radius=15.0, min_cutoff=0.8, beta=0.008)
+        self.gaze_engine = GazeEngine(screen_w=self.screen_w, screen_h=self.screen_h)
 
         # Audio Subsystem
         self.audio_classifier = AcousticClassifier(sample_rate=16000)
@@ -261,30 +263,16 @@ class AuraEngineServer:
                     if self.is_recording_target and self.recording_target_id is not None:
                         self.recorded_target_frames.append(feat)
 
-                    # Map to screen coordinates
-                    if self.calibration.model_x is not None:
-                        raw_x, raw_y = self.calibration.predict(feat)
-                    else:
-                        # Responsive default gaze estimate (mirrored for natural webcam feel)
-                        # Comfortable range to effortlessly reach Start button and all 4 corners
-                        head_x = (-res["yaw"] / 18.0 + 0.5) * self.screen_w
-                        # Tilting up (positive pitch) moves toward top of screen (0); looking down reaches taskbar
-                        head_y = (-res["pitch"] / 14.0 + 0.5) * self.screen_h
-                        # Iris fine offset
-                        iris_offset_x = (res["iris_x"] - 0.5) * 400.0
-                        iris_offset_y = (res["iris_y"] - 0.5) * 300.0
-
-                        raw_x = max(0.0, min(float(self.screen_w), head_x - iris_offset_x))
-                        raw_y = max(0.0, min(float(self.screen_h), head_y + iris_offset_y))
-
-                    # Apply Deadband + One Euro Filter
-                    smooth_x, smooth_y = self.filter.filter(raw_x, raw_y)
+                    # Map to screen coordinates via GazeEngine
+                    smooth_x, smooth_y = self.gaze_engine.process(feat)
                     self.last_valid_smooth_x = smooth_x
                     self.last_valid_smooth_y = smooth_y
 
                 # Update telemetry
                 self.latest_telemetry["x"] = float(smooth_x)
                 self.latest_telemetry["y"] = float(smooth_y)
+                self.latest_telemetry["iris_x"] = float(res["iris_x"])
+                self.latest_telemetry["iris_y"] = float(res["iris_y"])
                 self.latest_telemetry["is_blink_locked"] = bool(res["is_blink_locked"])
                 self.latest_telemetry["abort_triggered"] = bool(res["abort_triggered"])
                 self.latest_telemetry["raw_pose"] = {
@@ -301,6 +289,29 @@ class AuraEngineServer:
                 }
             else:
                 self.latest_telemetry["face_detected"] = False
+
+            # Generate Annotated Preview Thumbnail for Camera Overlay
+            try:
+                preview = cv2.resize(frame, (240, 160))
+                h_p, w_p = preview.shape[:2]
+                landmarks = res.get("landmarks") if res else None
+                if landmarks:
+                    l_iris = landmarks[468]
+                    r_iris = landmarks[473]
+                    lx, ly = int(l_iris.x * w_p), int(l_iris.y * h_p)
+                    rx, ry = int(r_iris.x * w_p), int(r_iris.y * h_p)
+                    cv2.circle(preview, (lx, ly), 3, (0, 255, 255), -1)
+                    cv2.circle(preview, (rx, ry), 3, (0, 255, 255), -1)
+
+                    ipd = math.hypot(lx - rx, ly - ry)
+                    dist_text = "Optimal (52cm)" if 16 < ipd < 45 else ("Too Far" if ipd <= 16 else "Too Close")
+                    cv2.putText(preview, dist_text, (8, 148), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 0), 1)
+                else:
+                    cv2.putText(preview, "Searching for face...", (8, 148), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 165, 255), 1)
+
+                cv2.imwrite(os.path.join(_BASE_DIR, ".preview_frame.jpg"), preview, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            except Exception:
+                pass
 
             time.sleep(0.015)  # ~60 Hz vision cadence
 

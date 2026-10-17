@@ -89,6 +89,39 @@ def start_voice_commander():
     return proc
 
 
+def start_eye_cursor_overlay():
+    """Starts eye_cursor_overlay.py in background."""
+    print("[AuraApp] Starting Virtual Eye Cursor Overlay (eye_cursor_overlay.py)...")
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(_BASE_DIR, "eye_cursor_overlay.py")],
+        cwd=_BASE_DIR,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    )
+    return proc
+
+
+def start_floating_pet():
+    """Starts floating_pet.py in background."""
+    print("[AuraApp] Starting System-Wide Hover Pet (floating_pet.py)...")
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(_BASE_DIR, "floating_pet.py")],
+        cwd=_BASE_DIR,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    )
+    return proc
+
+
+def start_camera_overlay():
+    """Starts camera_overlay.py in background."""
+    print("[AuraApp] Starting Floating Camera Preview (camera_overlay.py)...")
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(_BASE_DIR, "camera_overlay.py")],
+        cwd=_BASE_DIR,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    )
+    return proc
+
+
 def main():
     print("=" * 60)
     print("🔮 LAUNCHING AURA NATIVE DESKTOP APPLICATION")
@@ -97,9 +130,14 @@ def main():
     ensure_http_server()
     ensure_server()
 
-    # Launch background controllers
+    # Launch background controllers & overlays
     win_ctrl = start_windows_controller()
     voice_ctrl = start_voice_commander()
+    eye_overlay = start_eye_cursor_overlay()
+    pet_widget = start_floating_pet()
+    cam_overlay = start_camera_overlay()
+
+    procs = [win_ctrl, voice_ctrl, eye_overlay, pet_widget, cam_overlay]
 
     target_url = f"http://127.0.0.1:{HTTP_PORT}"
     print(f"[AuraApp] Opening native desktop window at {target_url}...")
@@ -119,13 +157,12 @@ def main():
         webview.start(debug=False)
     finally:
         print("[AuraApp] Application closing. Terminating child controllers...")
-        try:
-            if win_ctrl and win_ctrl.poll() is None:
-                win_ctrl.terminate()
-            if voice_ctrl and voice_ctrl.poll() is None:
-                voice_ctrl.terminate()
-        except Exception:
-            pass
+        for p in procs:
+            try:
+                if p and p.poll() is None:
+                    p.terminate()
+            except Exception:
+                pass
         print("[AuraApp] Clean exit.")
 
 

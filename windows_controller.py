@@ -53,7 +53,7 @@ class WindowsController:
 
     def __init__(self, ws_url: str = "ws://127.0.0.1:8765"):
         self.ws_url = ws_url
-        self.is_enabled: bool = True
+        self.is_enabled: bool = False  # False by default: user uses Virtual Overlay Cursor instead
         self.is_paused_by_failsafe: bool = False
         self.last_click_state: bool = False
 
