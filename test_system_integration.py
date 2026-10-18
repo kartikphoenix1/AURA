@@ -20,7 +20,7 @@ import websockets
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from aura_engine.server import AuraEngineServer
+from server import AuraEngineServer
 from start_aura import run_http_server
 
 
@@ -34,6 +34,7 @@ async def client_test():
             assert data["type"] == "telemetry", "Expected telemetry packet"
             assert "x" in data and "y" in data, "Telemetry missing x, y"
             assert "click" in data, "Telemetry missing click status"
+            assert "audio_calibrated" in data and "gaze_calibrated" in data, "Telemetry missing ML readiness fields"
             print(f"  Frame {i+1}: pos=({data['x']:.1f}, {data['y']:.1f}), click={data['click']}, blink_locked={data['is_blink_locked']}")
 
         # Test sending control message
@@ -75,25 +76,34 @@ def main():
     assert res.status == 200, "UI Server failed to serve 200 OK"
     html_content = res.read().decode("utf-8")
     assert "AURA" in html_content, "UI HTML content missing"
-    print("[Integration Test] HTTP UI Server verified serving index.html at http://127.0.0.1:5179.")
+    for feature_id in ("view-theremin", "view-ml-model", "view-settings", "btn-learn-oops"):
+        assert feature_id in html_content, f"UI feature missing: {feature_id}"
+    assert "Voice command guide (60 commands)" in html_content, "Voice command guide missing"
+    print("[Integration Test] HTTP UI Server and feature panels verified at http://127.0.0.1:5179.")
 
     # 2. Start ML Engine Server in background thread
     server = AuraEngineServer()
     server_thread = threading.Thread(target=server.start, daemon=True)
     server_thread.start()
 
-    # Wait up to 10 seconds for WebSocket port to open
+    # Wait for a real WebSocket handshake; a raw TCP probe produces a
+    # misleading opening-handshake traceback in the server log.
     print("[Integration Test] Waiting for WebSocket server to become ready...")
+    async def websocket_ready():
+        try:
+            async with websockets.connect("ws://127.0.0.1:8765", open_timeout=1.0):
+                return True
+        except Exception:
+            return False
+
+    ready = False
     for _ in range(30):
         time.sleep(0.5)
-        try:
-            import socket
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                if s.connect_ex(("127.0.0.1", 8765)) == 0:
-                    print("[Integration Test] WebSocket server port is OPEN and ready.")
-                    break
-        except Exception:
-            pass
+        if asyncio.run(websocket_ready()):
+            ready = True
+            print("[Integration Test] WebSocket server handshake succeeded.")
+            break
+    assert ready, "WebSocket server did not become ready within 15 seconds"
 
     # 3. Run client integration test
     asyncio.run(client_test())

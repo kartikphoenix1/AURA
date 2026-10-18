@@ -1,15 +1,19 @@
 import os
 import sys
+import re
+import tempfile
+from contextlib import nullcontext
+from types import SimpleNamespace
 import numpy as np
 
-# Ensure aura_engine is importable
+# Ensure top-level project modules are importable from any working directory.
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, os.path.dirname(parent_dir))
+sys.path.insert(0, current_dir)
 
-from aura_engine.vision.one_euro_filter import DeadbandOneEuroFilter2D
-from aura_engine.vision.calibration import GazeCalibration
-from aura_engine.audio.classifier import AcousticClassifier, AcousticFeatureExtractor
+from one_euro_filter import DeadbandOneEuroFilter2D
+from calibration import GazeCalibration
+from classifier import AcousticClassifier, AcousticFeatureExtractor
+from voice_commander import VoiceCommander
 
 
 def test_deadband_and_filter():
@@ -157,6 +161,19 @@ def test_audio_classifier():
     calib_res = clf.calibrate(click_samples, noise_samples)
     loo = calib_res["loo_evaluation"]
 
+    # Verify the user-confirmed "Oops, learn that" path updates only the
+    # rolling dynamic bank. This harness keeps the classifier in memory.
+    dynamic_before = len(clf.dynamic_clicks)
+    clf.add_verified_sample(click_samples[0])
+    assert len(clf.dynamic_clicks) == dynamic_before + 1, "Verified sample should enter the dynamic click bank"
+    with tempfile.TemporaryDirectory(prefix="aura-learning-test-") as temp_dir:
+        model_path = os.path.join(temp_dir, "acoustic_model.joblib")
+        clf.save(model_path)
+        restored = AcousticClassifier(sample_rate=16000)
+        restored.load(model_path)
+        assert len(restored.dynamic_clicks) == dynamic_before + 1, "Learned sample should persist across model save/load"
+    print(f" -> Continuous learning bank: {dynamic_before} -> {len(clf.dynamic_clicks)} verified samples; save/load retained it")
+
     print("\n---------------- AUDIO LOO EVALUATION REPORT ----------------")
     print(f" Calibration Samples  : {calib_res['click_samples_count']} clicks, {calib_res['noise_samples_count']} noise")
     print(f" Data-Derived R_max   : {calib_res['r_max']:.3f} (Intra-click mean dist: {calib_res['mean_intra_click_dist']:.3f})")
@@ -177,11 +194,73 @@ def test_audio_classifier():
     assert not is_click, "Outlier with distance > R_max must be rejected as Out-Of-Distribution!"
     print(" -> SUCCESS: Open-set outlier safely rejected by R_max threshold.")
 
+def test_voice_command_guide():
+    print("\n========================================================")
+    print(" 4. TESTING THE 60 DOCUMENTED VOICE PHRASES")
+    print("========================================================")
+
+    class FakeKeyboard:
+        def pressed(self, *keys):
+            return nullcontext()
+        def press(self, *keys):
+            pass
+        def release(self, *keys):
+            pass
+        def type(self, text):
+            pass
+
+    # Keep desktop operations inert while exercising the real parser.
+    import voice_commander
+    original_sys = voice_commander.sys
+    voice_commander.sys = SimpleNamespace(platform="darwin")
+    try:
+        commander = object.__new__(VoiceCommander)
+        commander.keyboard = FakeKeyboard()
+        commander.is_listening = True
+        commander.last_response = "Repeat response."
+        commander.callback = None
+        commander._send_ws = lambda message: None
+        commander._speak_native = lambda text: False
+        commander.scroll = lambda *args: None
+        commander.trigger_zoom_in = lambda: None
+        commander.trigger_zoom_out = lambda: None
+        commander.trigger_spotlight = lambda *args: None
+        commander.open_app = lambda app: f"Opening {app}"
+        window_actions = []
+        commander._window_action = lambda app, action: (window_actions.append((app, action)) or (True, app.title()))
+
+        html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+        with open(html_path, encoding="utf-8") as html_file:
+            guide = re.search(r"<summary>Voice command guide \(60 commands\)</summary><p>(.*?)</p>", html_file.read(), re.S)
+        assert guide, "The visible 60-command guide should be present"
+        phrases = [phrase.strip() for phrase in guide.group(1).split("·")]
+        assert len(phrases) == 60, f"Expected 60 phrases, found {len(phrases)}"
+        unsupported = []
+        for phrase in phrases:
+            utterance = phrase.replace("[phrase]", "cats").replace("[app]", "Safari")
+            response = commander.execute_command(utterance)
+            if response.startswith("I heard:"):
+                unsupported.append(phrase)
+        assert not unsupported, f"Unrecognized guide phrases: {unsupported}"
+        for utterance, expected_action in (
+            ("minimize Chrome app", "minimize"),
+            ("maximize Safari app", "maximize"),
+            ("close Chrome app", "close"),
+        ):
+            commander.execute_command(utterance)
+            assert window_actions[-1] == (utterance.split()[1].lower(), expected_action), (
+                f"Targeted app command was not routed correctly: {utterance} -> {window_actions[-1]}"
+            )
+        print(f" -> All {len(phrases)} phrases reached the command parser; OS actions were stubbed.")
+    finally:
+        voice_commander.sys = original_sys
+
 
 if __name__ == "__main__":
     test_deadband_and_filter()
     test_calibration_lopo_cv()
     test_audio_classifier()
+    test_voice_command_guide()
     print("\n========================================================")
     print(" ALL PORTION 1 DIAGNOSTICS & VERIFICATION TESTS PASSED! ")
     print("========================================================\n")

@@ -1,4 +1,5 @@
 import math
+from collections import deque
 import time
 from typing import Tuple, Optional
 
@@ -90,10 +91,17 @@ class DeadbandOneEuroFilter2D:
         min_cutoff: float = 0.8,
         beta: float = 0.008,
         d_cutoff: float = 1.0,
+        move_confirm_frames: int = 3,
+        settle_frames: int = 8,
     ):
         self.deadband_radius = deadband_radius
         self.anchor_x: Optional[float] = None
         self.anchor_y: Optional[float] = None
+        self.move_confirm_frames = max(2, int(move_confirm_frames))
+        self.settle_frames = max(4, int(settle_frames))
+        self._candidate = deque(maxlen=self.move_confirm_frames)
+        self._settle = deque(maxlen=self.settle_frames)
+        self._moving = False
 
         self.filter_x = OneEuroFilter(min_cutoff=min_cutoff, beta=beta, d_cutoff=d_cutoff)
         self.filter_y = OneEuroFilter(min_cutoff=min_cutoff, beta=beta, d_cutoff=d_cutoff)
@@ -108,18 +116,47 @@ class DeadbandOneEuroFilter2D:
             self.anchor_x = raw_x
             self.anchor_y = raw_y
 
-        # Calculate distance to current deadband anchor
-        dist = math.hypot(raw_x - self.anchor_x, raw_y - self.anchor_y)
-
-        if dist < self.deadband_radius:
-            # Inside deadband: keep input pinned to anchor to eliminate micro-jitter
-            input_x, input_y = self.anchor_x, self.anchor_y
+        point = (float(raw_x), float(raw_y))
+        dist = math.hypot(point[0] - self.anchor_x, point[1] - self.anchor_y)
+        if not self._moving:
+            if dist < self.deadband_radius:
+                self._candidate.clear()
+                input_x, input_y = self.anchor_x, self.anchor_y
+            else:
+                self._candidate.append(point)
+                if len(self._candidate) < self.move_confirm_frames:
+                    input_x, input_y = self.anchor_x, self.anchor_y
+                else:
+                    points = list(self._candidate)
+                    dx = points[-1][0] - points[0][0]
+                    dy = points[-1][1] - points[0][1]
+                    span = math.hypot(dx, dy)
+                    spread = max(math.hypot(p[0] - points[0][0], p[1] - points[0][1]) for p in points)
+                    anchor_dx = point[0] - self.anchor_x
+                    anchor_dy = point[1] - self.anchor_y
+                    progressing = dx * anchor_dx + dy * anchor_dy > 3.0
+                    outside_deadband = all(math.hypot(p[0] - self.anchor_x, p[1] - self.anchor_y) >= self.deadband_radius for p in points)
+                    if (span >= self.deadband_radius * 0.55 or (outside_deadband and progressing)) and spread <= self.deadband_radius * 2.5:
+                        self._moving = True
+                        self._settle.clear()
+                        input_x, input_y = point
+                    else:
+                        self._candidate.clear()
+                        input_x, input_y = self.anchor_x, self.anchor_y
         else:
-            # Exited deadband: pull anchor toward raw position to maintain continuity
-            pull = (dist - self.deadband_radius) / max(dist, 1e-6)
-            self.anchor_x += (raw_x - self.anchor_x) * pull
-            self.anchor_y += (raw_y - self.anchor_y) * pull
-            input_x, input_y = self.anchor_x, self.anchor_y
+            input_x, input_y = point
+            self._settle.append(point)
+            if len(self._settle) == self.settle_frames:
+                xs = [p[0] for p in self._settle]
+                ys = [p[1] for p in self._settle]
+                spread = max(math.hypot(p[0] - self._settle[0][0], p[1] - self._settle[0][1]) for p in self._settle)
+                if spread < self.deadband_radius * 0.65:
+                    self.anchor_x = sorted(xs)[len(xs) // 2]
+                    self.anchor_y = sorted(ys)[len(ys) // 2]
+                    self._moving = False
+                    self._candidate.clear()
+                    self._settle.clear()
+                    input_x, input_y = self.anchor_x, self.anchor_y
 
         smooth_x = self.filter_x.filter(input_x, timestamp)
         smooth_y = self.filter_y.filter(input_y, timestamp)
@@ -128,5 +165,8 @@ class DeadbandOneEuroFilter2D:
     def reset(self):
         self.anchor_x = None
         self.anchor_y = None
+        self._candidate.clear()
+        self._settle.clear()
+        self._moving = False
         self.filter_x.reset()
         self.filter_y.reset()

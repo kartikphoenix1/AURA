@@ -44,11 +44,13 @@ class WindowsController:
 
     # Magnetic intensity settings
     MAGNETIC_MODES = {
-        "off": {"radius": 0, "friction": 1.0, "pull": 0.0},
-        "low": {"radius": 25, "friction": 0.65, "pull": 0.25},
-        "medium": {"radius": 45, "friction": 0.40, "pull": 0.50},
-        "high": {"radius": 70, "friction": 0.25, "pull": 0.75},
-        "ultra": {"radius": 95, "friction": 0.15, "pull": 0.90},
+        # Movement multipliers while the gaze is within a UIA control.
+        # These modes add friction only; they never pull toward the control center.
+        "off": {"friction": 1.0},
+        "low": {"friction": 0.65},
+        "medium": {"friction": 0.45},
+        "high": {"friction": 0.32},
+        "ultra": {"friction": 0.22},
     }
 
     def __init__(self, ws_url: str = "ws://127.0.0.1:8765"):
@@ -57,12 +59,15 @@ class WindowsController:
         self.is_paused_by_failsafe: bool = False
         self.last_click_state: bool = False
 
-        # Magnetic snapping config
-        self.magnetic_mode: str = "high"
+        # UI Automation-based sticky friction config
+        self.magnetic_mode: str = "medium"
         self.current_friction_multiplier: float = 1.0
+        self._sticky_bounds = None
 
         # Dwell to click config
         self.dwell_enabled: bool = True
+        self.blink_enabled: bool = True
+        self.dwell_mode: str = "left"
         self.dwell_target_time: float = 1.0  # seconds
         self.dwell_radius: float = 30.0      # pixels
         self.dwell_anchor: Optional[Tuple[float, float]] = None
@@ -119,12 +124,10 @@ class WindowsController:
             print("[WindowsController] Zoom Out dispatched!", flush=True)
 
     def _apply_magnetic_attraction(self, x: float, y: float) -> Tuple[float, float]:
-        """
-        Inspects element under/near cursor via UI Automation.
-        Snaps toward center of clickable buttons and applies magnetic friction.
-        """
+        """Add UIA-based friction inside controls without snapping their centers."""
         cfg = self.MAGNETIC_MODES.get(self.magnetic_mode, self.MAGNETIC_MODES["medium"])
-        if cfg["radius"] == 0 or not UIAUTOMATION_AVAILABLE:
+        if cfg["friction"] >= 1.0 or not UIAUTOMATION_AVAILABLE:
+            self._sticky_bounds = None
             self.current_friction_multiplier = 1.0
             return x, y
 
@@ -140,21 +143,21 @@ class WindowsController:
                 auto.ControlType.ListItemControl,
             ]:
                 rect = element.BoundingRectangle
-                if rect:
-                    cx = (rect.left + rect.right) / 2.0
-                    cy = (rect.top + rect.bottom) / 2.0
-                    dist = math.hypot(x - cx, y - cy)
-
-                    if dist <= cfg["radius"]:
-                        self.current_friction_multiplier = cfg["friction"]
-                        # Attract cursor toward button center
-                        pulled_x = x + (cx - x) * cfg["pull"]
-                        pulled_y = y + (cy - y) * cfg["pull"]
-                        return pulled_x, pulled_y
-
+                if rect and rect.left <= x <= rect.right and rect.top <= y <= rect.bottom:
+                    self._sticky_bounds = (rect.left, rect.top, rect.right, rect.bottom)
+                    self.current_friction_multiplier = cfg["friction"]
+                    return x, y
         except Exception:
             pass
 
+        if self._sticky_bounds is not None:
+            left, top, right, bottom = self._sticky_bounds
+            margin = 14
+            if left - margin <= x <= right + margin and top - margin <= y <= bottom + margin:
+                self.current_friction_multiplier = cfg["friction"]
+                return x, y
+
+        self._sticky_bounds = None
         self.current_friction_multiplier = 1.0
         return x, y
 
@@ -183,11 +186,11 @@ class WindowsController:
             dwell_duration = now - (self.dwell_start_time or now)
             if dwell_duration >= self.dwell_target_time and not self.dwell_triggered:
                 self.dwell_triggered = True
-                self.click_mouse(x, y, "left")
+                self.click_mouse(x, y, self.dwell_mode)
                 print(f"[WindowsController] Dwell click triggered at ({int(x)}, {int(y)})!", flush=True)
 
     def move_mouse(self, x: float, y: float):
-        """Win32 SetCursorPos with magnetic snapping & dwell tracking."""
+        """Win32 SetCursorPos with accessible-control friction and dwell tracking."""
         if not self.is_enabled or self.is_paused_by_failsafe or not self.user32:
             return
 
@@ -237,7 +240,7 @@ class WindowsController:
                         # Settings updates from frontend or voice commander
                         if msg_type == "update_settings":
                             if "dwell_time" in data:
-                                self.dwell_target_time = max(0.3, float(data["dwell_time"]))
+                                self.dwell_target_time = min(8.0, max(0.3, float(data["dwell_time"])))
                                 print(f"[WindowsController] Updated dwell time: {self.dwell_target_time}s")
                             if "magnetic_intensity" in data:
                                 self.magnetic_mode = str(data["magnetic_intensity"]).lower()
@@ -246,6 +249,10 @@ class WindowsController:
                                 self.is_enabled = bool(data["gaze_enabled"])
                             if "dwell_enabled" in data:
                                 self.dwell_enabled = bool(data["dwell_enabled"])
+                            if "blink_enabled" in data:
+                                self.blink_enabled = bool(data["blink_enabled"])
+                            if "dwell_mode" in data and data["dwell_mode"] in ("left", "right", "double"):
+                                self.dwell_mode = data["dwell_mode"]
                             if "trigger_zoom" in data:
                                 self.trigger_zoom(data.get("zoom_state"))
                             continue
@@ -277,8 +284,9 @@ class WindowsController:
 
                         self.move_mouse(current_x, current_y)
 
-                        if click_intent and not self.last_click_state:
-                            btn = "right" if click_source == "wink_right" else "left"
+                        allow_click = click_source != "blink" or self.blink_enabled
+                        if click_intent and allow_click and not self.last_click_state:
+                            btn = data.get("click_type", "left")
                             self.click_mouse(current_x, current_y, btn)
 
                         self.last_click_state = click_intent

@@ -143,27 +143,32 @@ class GazeCalibration:
         self.best_alpha = float(best_alpha)
         self.diagnostics = best_eval_breakdown
 
-        # Refit final production pipelines on ALL data
-        self.model_x = Pipeline([
+        # Refit final production pipelines on ALL data into local variables first
+        new_model_x = Pipeline([
             ("scaler", StandardScaler()),
             ("ridge", Ridge(alpha=self.best_alpha, fit_intercept=True))
         ])
-        self.model_y = Pipeline([
+        new_model_y = Pipeline([
             ("scaler", StandardScaler()),
             ("ridge", Ridge(alpha=self.best_alpha, fit_intercept=True))
         ])
-        self.model_x.fit(X, y_x)
-        self.model_y.fit(X, y_y)
+        new_model_x.fit(X, y_x)
+        new_model_y.fit(X, y_y)
+
+        # Atomic assignment to prevent vision thread from reading an unfitted Pipeline
+        self.model_x = new_model_x
+        self.model_y = new_model_y
 
         return self.diagnostics
 
     def predict(self, feature_vector: np.ndarray) -> Tuple[float, float]:
         """Maps a single [yaw, pitch, iris_x, iris_y] feature vector to (screen_x, screen_y)."""
-        if self.model_x is None or self.model_y is None:
+        mx, my = self.model_x, self.model_y
+        if mx is None or my is None:
             raise RuntimeError("Model is not calibrated yet. Run cross-validation first.")
         feat = feature_vector.reshape(1, -1)
-        px_x = float(self.model_x.predict(feat)[0])
-        px_y = float(self.model_y.predict(feat)[0])
+        px_x = float(mx.predict(feat)[0])
+        px_y = float(my.predict(feat)[0])
         # Clamp to screen bounds
         px_x = max(0.0, min(float(self.screen_w), px_x))
         px_y = max(0.0, min(float(self.screen_h), px_y))
@@ -182,8 +187,17 @@ class GazeCalibration:
 
     def load(self, filepath: str):
         data = joblib.load(filepath)
-        self.model_x = data["model_x"]
-        self.model_y = data["model_y"]
+        model_x = data["model_x"]
+        model_y = data["model_y"]
+        # Reject saved models trained before tracker vectors gained pose translation.
+        expected_features = 7
+        if (getattr(model_x, "n_features_in_", None) != expected_features or
+                getattr(model_y, "n_features_in_", None) != expected_features):
+            self.model_x = None
+            self.model_y = None
+            raise ValueError("Calibration model uses an outdated feature format; recalibration is required.")
+        self.model_x = model_x
+        self.model_y = model_y
         self.best_alpha = data["best_alpha"]
         self.screen_w = data["screen_w"]
         self.screen_h = data["screen_h"]

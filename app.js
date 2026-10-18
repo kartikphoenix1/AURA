@@ -51,9 +51,15 @@ class AuraApp {
     this.konamiSequence = [];
     this.lastEasterEggTime = 0;
 
+    // Mac OS App Launcher & System Controls
+    this.currentClickMode = "left";
+    this.macDwellCard = null;
+    this.macDwellStartTime = 0;
+
     this.initCanvas();
     this.initDOM();
     this.initNovaPet();
+    this.initMacApps();
     this.initFloatingQuickBar();
     this.initWebSocket();
     this.initBubbleGrid();
@@ -149,12 +155,18 @@ class AuraApp {
       this.ws.onopen = () => {
         statusPill.textContent = "WebSocket Online (60 FPS)";
         statusPill.className = "status-pill online";
+        // Check macOS accessibility permission status on connection
+        this.ws.send(JSON.stringify({ type: "system_action", action: "check_accessibility" }));
       };
 
       this.ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === "telemetry") {
           this.handleTelemetry(msg);
+        } else if (msg.type === "accessibility_status") {
+          this.updateAccessibilityStatus(msg.trusted);
+        } else if (msg.type === "voice_feedback") {
+          this.handleVoiceFeedback(msg);
         } else if (msg.status) {
           this.handleServerResponse(msg);
         }
@@ -443,6 +455,213 @@ class AuraApp {
           }));
         }
       });
+    }
+
+    // Quick bar Mac Controls
+    const quickClickToggle = document.getElementById("quick-toggle-clickmode");
+    if (quickClickToggle) {
+      quickClickToggle.addEventListener("click", () => {
+        const nextMode = this.currentClickMode === "left" ? "double" : "left";
+        this.setClickMode(nextMode);
+      });
+    }
+
+    const quickMacApps = document.getElementById("quick-btn-mac-apps");
+    if (quickMacApps) {
+      quickMacApps.addEventListener("click", () => {
+        const macTab = document.querySelector('[data-tab="mac-apps"]');
+        if (macTab) macTab.click();
+      });
+    }
+
+    const quickSpotlight = document.getElementById("quick-btn-spotlight");
+    if (quickSpotlight) {
+      quickSpotlight.addEventListener("click", () => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: "system_action", action: "open_spotlight" }));
+        }
+        this.playClickSound();
+      });
+    }
+  }
+
+  // --- MAC APPS & DESKTOP CONTROLLER ---
+  setClickMode(mode) {
+    this.currentClickMode = mode;
+    document.querySelectorAll(".seg-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.clickMode === mode);
+    });
+    const quickClickToggle = document.getElementById("quick-toggle-clickmode");
+    if (quickClickToggle) {
+      quickClickToggle.textContent = mode === "double" ? "🖱️ 2x Double" : (mode === "right" ? "🖱️ Right Click" : "🖱️ 1x Click");
+      quickClickToggle.classList.toggle("active", mode !== "left");
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: "update_settings", dwell_mode: mode }));
+    }
+    this.playHoverSound();
+  }
+
+  initMacApps() {
+    // 1. Accessibility buttons
+    const btnOpenSettings = document.getElementById("btn-open-mac-settings");
+    if (btnOpenSettings) {
+      btnOpenSettings.addEventListener("click", () => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: "system_action", action: "open_accessibility_settings" }));
+        }
+        this.playClickSound();
+      });
+    }
+
+    const btnCheckSettings = document.getElementById("btn-check-mac-settings");
+    if (btnCheckSettings) {
+      btnCheckSettings.addEventListener("click", () => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: "system_action", action: "check_accessibility" }));
+        }
+        this.playHoverSound();
+      });
+    }
+
+    // 2. Click Mode segmented controls
+    const singleBtn = document.getElementById("btn-mode-single");
+    const doubleBtn = document.getElementById("btn-mode-double");
+    const rightBtn = document.getElementById("btn-mode-right");
+
+    if (singleBtn) singleBtn.addEventListener("click", () => this.setClickMode("left"));
+    if (doubleBtn) doubleBtn.addEventListener("click", () => this.setClickMode("double"));
+    if (rightBtn) rightBtn.addEventListener("click", () => this.setClickMode("right"));
+
+    // 3. Quick Mac Action buttons
+    const btnSpotlight = document.getElementById("btn-mac-spotlight");
+    if (btnSpotlight) {
+      btnSpotlight.addEventListener("click", () => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: "system_action", action: "open_spotlight" }));
+        }
+        this.playClickSound();
+      });
+    }
+
+    const btnSwitch = document.getElementById("btn-mac-switch");
+    if (btnSwitch) {
+      btnSwitch.addEventListener("click", () => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: "system_action", action: "switch_app" }));
+        }
+        this.playHoverSound();
+      });
+    }
+
+    const btnDesktop = document.getElementById("btn-mac-desktop");
+    if (btnDesktop) {
+      btnDesktop.addEventListener("click", () => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: "system_action", action: "show_desktop" }));
+        }
+        this.playHoverSound();
+      });
+    }
+
+    const btnQuit = document.getElementById("btn-mac-quit");
+    if (btnQuit) {
+      btnQuit.addEventListener("click", () => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: "voice_command", action: "close_app" }));
+        }
+        this.playHoverSound();
+      });
+    }
+
+    // 4. App Cards click handlers
+    document.querySelectorAll(".mac-app-card").forEach(card => {
+      card.addEventListener("click", () => {
+        const app = card.dataset.app;
+        this.launchApp(app, card);
+      });
+    });
+
+    // 5. Custom App Input
+    const customInput = document.getElementById("custom-app-input");
+    const customBtn = document.getElementById("btn-launch-custom-app");
+    if (customBtn && customInput) {
+      const launchCustom = () => {
+        const val = customInput.value.trim();
+        if (val) {
+          this.launchApp(val);
+          customInput.value = "";
+        }
+      };
+      customBtn.addEventListener("click", launchCustom);
+      customInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") launchCustom();
+      });
+    }
+  }
+
+  launchApp(appName, cardEl = null) {
+    if (cardEl) {
+      cardEl.classList.add("launching");
+      setTimeout(() => cardEl.classList.remove("launching"), 600);
+    }
+    this.playClickSound();
+    this.spawnClickRipples(this.cursorX, this.cursorY, 20);
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: "system_action",
+        action: "open_app",
+        app: appName
+      }));
+    }
+
+    const buddySpeech = document.getElementById("buddy-speech");
+    if (buddySpeech) {
+      buddySpeech.textContent = `Opening ${appName} on Mac! 🚀`;
+    }
+  }
+
+  updateAccessibilityStatus(trusted) {
+    const accessCard = document.getElementById("mac-access-card");
+    const statusPill = document.getElementById("status-accessibility");
+    const accessIcon = document.getElementById("access-icon");
+    const accessTitle = document.getElementById("access-title");
+    const accessDesc = document.getElementById("access-desc");
+
+    if (trusted) {
+      if (accessCard) {
+        accessCard.className = "mac-access-card success";
+      }
+      if (accessIcon) accessIcon.textContent = "✅";
+      if (accessTitle) accessTitle.textContent = "macOS Accessibility Granted";
+      if (accessDesc) accessDesc.textContent = "System control is active! You can now move the pointer across other Mac apps, click the Dock, and select desktop items.";
+      if (statusPill) {
+        statusPill.textContent = "✅ Mac Control: Active";
+        statusPill.className = "status-pill success";
+      }
+    } else {
+      if (accessCard) {
+        accessCard.className = "mac-access-card warning";
+      }
+      if (accessIcon) accessIcon.textContent = "⚠️";
+      if (accessTitle) accessTitle.textContent = "macOS Accessibility Permission Required";
+      if (accessDesc) accessDesc.textContent = "Aura needs Accessibility permission to move the mouse pointer across other apps, select apps in the macOS Dock, and double-click desktop files.";
+      if (statusPill) {
+        statusPill.textContent = "⚠️ Mac Control: Permission Needed";
+        statusPill.className = "status-pill warning";
+      }
+    }
+  }
+
+  handleVoiceFeedback(msg) {
+    if (this.petStatus && msg.response) {
+      this.petStatus.textContent = `🗣️ "${msg.heard}" → ${msg.response}`;
+      this.speakText(msg.response);
+    }
+    const buddySpeech = document.getElementById("buddy-speech");
+    if (buddySpeech && msg.response) {
+      buddySpeech.textContent = msg.response;
     }
   }
 
@@ -1071,6 +1290,58 @@ class AuraApp {
       const eyeOffsetX = Math.cos(angle) * (distance * 0.15);
       const eyeOffsetY = Math.sin(angle) * (distance * 0.15);
       this.petEyes.style.transform = `translate(calc(-50% + ${eyeOffsetX}px), calc(-50% + ${eyeOffsetY}px))`;
+    }
+
+    // 6. Gaze Dwell-to-Launch for Mac App Cards
+    const macView = document.getElementById("view-mac-apps");
+    if (macView && macView.classList.contains("active")) {
+      let hoveredCard = null;
+      document.querySelectorAll(".mac-app-card").forEach(card => {
+        const rect = card.getBoundingClientRect();
+        if (
+          this.cursorX >= rect.left &&
+          this.cursorX <= rect.right &&
+          this.cursorY >= rect.top &&
+          this.cursorY <= rect.bottom
+        ) {
+          hoveredCard = card;
+        }
+      });
+
+      if (hoveredCard) {
+        if (this.macDwellCard !== hoveredCard) {
+          if (this.macDwellCard) {
+            const oldFill = this.macDwellCard.querySelector(".dwell-fill");
+            if (oldFill) oldFill.style.width = "0%";
+          }
+          this.macDwellCard = hoveredCard;
+          this.macDwellStartTime = now;
+        } else {
+          const dwellElapsed = now - this.macDwellStartTime;
+          const targetDwell = 1000;
+          const pct = Math.min(100, (dwellElapsed / targetDwell) * 100);
+          const fill = hoveredCard.querySelector(".dwell-fill");
+          if (fill) fill.style.width = `${pct}%`;
+
+          if (dwellElapsed >= targetDwell && !hoveredCard.dataset.dwelled) {
+            hoveredCard.dataset.dwelled = "true";
+            this.launchApp(hoveredCard.dataset.app, hoveredCard);
+            setTimeout(() => {
+              if (hoveredCard) {
+                delete hoveredCard.dataset.dwelled;
+                if (fill) fill.style.width = "0%";
+              }
+            }, 1200);
+          }
+        }
+      } else {
+        if (this.macDwellCard) {
+          const fill = this.macDwellCard.querySelector(".dwell-fill");
+          if (fill) fill.style.width = "0%";
+          delete this.macDwellCard.dataset.dwelled;
+          this.macDwellCard = null;
+        }
+      }
     }
 
     requestAnimationFrame(() => this.animate());

@@ -1,287 +1,729 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aura — Multimodal Intent Fusion</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aura — Flipping</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root { --pet-size: 140px; --accent: #00d2ff; --accent2: #e91e63; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            width: 100vw; height: 100vh;
+            background-color: #16161e;
+            overflow: hidden;
+            font-family: 'Inter', system-ui, sans-serif;
+            color: white;
+            cursor: default;
+            user-select: none;
+        }
+        body::before { content:''; position:fixed; inset:0; background:linear-gradient(rgba(16,16,24,0.34),rgba(16,16,24,0.48)),url('home_background.png') center / cover no-repeat; z-index:0; pointer-events:none; opacity:0; transition:opacity .25s ease; }
+        body.home-active::before { opacity:1; }
+
+        /* ── TELEMETRY HUD ── */
+        #telemetry-hud { position:fixed; top:16px; left:290px; z-index:100; display:flex; gap:10px; pointer-events:none; transition:left 0.3s ease; }
+        body.sidebar-collapsed #telemetry-hud { left:100px; }
+        .hud-pill { background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); border-radius:20px; padding:5px 14px; font-size:11px; font-weight:500; letter-spacing:0.5px; backdrop-filter:blur(12px); display:flex; align-items:center; gap:6px; }
+        .hud-dot { width:7px; height:7px; border-radius:50%; background:#555; transition:background 0.3s; }
+        .hud-dot.active { background:#00ff88; box-shadow:0 0 6px #00ff88; }
+        .hud-dot.click  { background:var(--accent2); box-shadow:0 0 8px var(--accent2); }
+
+        /* ── LAYOUT ── */
+        #desktop-app { display:flex; width:100vw; height:100vh; position:relative; z-index:1; }
+        .sidebar { width:260px; min-width:260px; background:rgba(255,255,255,0.015); border-right:1px solid rgba(255,255,255,0.05); display:flex; flex-direction:column; padding:40px 30px; backdrop-filter:blur(20px); z-index:10; overflow:hidden; transition:width 0.3s ease,min-width 0.3s ease,padding 0.3s ease; }
+        body.sidebar-collapsed .sidebar { width:80px; min-width:80px; padding:40px 28px; }
+        .menu-icon { display:flex; flex-direction:column; gap:6px; cursor:pointer; margin-bottom:60px; width:24px; pointer-events:auto; }
+        .menu-icon:hover .line { background:var(--accent); }
+        .menu-icon .line { height:2px; background:#fff; width:100%; border-radius:2px; transition:background 0.2s; }
+        .nav-items { display:flex; flex-direction:column; gap:25px; }
+        .nav-item { color:#888; font-size:14px; font-weight:500; cursor:pointer; white-space:nowrap; transition:color 0.2s,opacity 0.2s; display:flex; align-items:center; gap:12px; pointer-events:auto; }
+        .nav-item:hover { color:#fff; }
+        .nav-item .nav-icon { font-size:18px; min-width:20px; }
+        body.sidebar-collapsed .nav-item span { opacity:0; }
+        .main-content { flex:1; position:relative; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+        .top-right-logo { position:absolute; top:36px; right:40px; z-index:10; }
+        .app-logo-text { font-family:'Syne',sans-serif; font-size:40px; font-weight:700; background:linear-gradient(135deg,#fff 0%,#888 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; letter-spacing:2px; }
+        .center-content { text-align:center; max-width:620px; z-index:10; margin-top:-50px; }
+        .title-wrapper { position:relative; display:inline-block; margin-bottom:20px; padding:20px 40px; }
+        .halftone-background { position:absolute; top:-40px; left:-40px; right:-40px; bottom:-40px; z-index:-1; background-image:radial-gradient(circle at center,rgba(0,210,255,0.8) 2px,transparent 2.5px),radial-gradient(circle at center,rgba(233,30,99,0.8) 2px,transparent 2.5px); background-position:0 0,8px 8px; background-size:16px 16px; -webkit-mask-image:radial-gradient(ellipse at center,black 15%,transparent 65%); mask-image:radial-gradient(ellipse at center,black 15%,transparent 65%); animation:moveHalftone 8s linear infinite; filter:drop-shadow(0 0 3px rgba(0,210,255,0.6)) drop-shadow(0 0 6px rgba(233,30,99,0.4)); }
+        @keyframes moveHalftone { 0%{background-position:0px 0px,8px 8px} 100%{background-position:160px 160px,168px 168px} }
+        .main-title { font-size:40px; font-weight:600; background:linear-gradient(135deg,#fff 0%,#aaa 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1.2; }
+        .sub-text { color:#999; font-size:15px; line-height:1.7; margin:0 0 8px 0; }
+        .action-buttons { display:flex; gap:12px; justify-content:center; margin-top:36px; flex-wrap:wrap; }
+        .action-buttons button { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); color:white; padding:11px 22px; border-radius:10px; font-family:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:all 0.2s; pointer-events:auto; }
+        .action-buttons button:hover { background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.25); transform:translateY(-2px); }
+        .action-buttons button.primary { background:linear-gradient(135deg,rgba(0,210,255,0.2),rgba(233,30,99,0.2)); border-color:rgba(0,210,255,0.35); }
+        .action-buttons button.primary:hover { background:linear-gradient(135deg,rgba(0,210,255,0.35),rgba(233,30,99,0.35)); }
+
+        /* Voice command toast */
+        #voice-toast {
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.7); border: 1px solid rgba(0,210,255,0.3);
+            border-radius: 30px; padding: 10px 24px;
+            font-size: 13px; font-weight: 500;
+            backdrop-filter: blur(16px); z-index: 1000;
+            opacity: 0; transition: opacity 0.3s ease;
+            display: flex; align-items: center; gap: 10px;
+            white-space: nowrap;
+        }
+        #voice-toast.visible { opacity: 1; }
+        #voice-toast .mic-icon { font-size: 16px; }
+
+        /* ── CHAT ── */
+        #chat-interface { display:flex; flex-direction:column; margin:20px auto 0; width:min(560px,90vw); background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.07); border-radius:16px; padding:16px 20px; backdrop-filter:blur(16px); text-align:left; box-shadow:0 16px 40px rgba(0,0,0,0.35); pointer-events:auto; }
+        @keyframes slideDown { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+        #chat-history { height:180px; overflow-y:auto; margin-bottom:14px; display:flex; flex-direction:column; gap:10px; font-size:13px; padding-right:6px; }
+        #chat-history::-webkit-scrollbar { width:4px; }
+        #chat-history::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:2px; }
+        .chat-message { padding:10px 14px; border-radius:12px; max-width:88%; line-height:1.5; }
+        .chat-user { background:rgba(255,255,255,0.08); align-self:flex-end; border-bottom-right-radius:3px; }
+        .chat-bot { background:rgba(0,210,255,0.08); color:#d0f4ff; align-self:flex-start; border-bottom-left-radius:3px; border:1px solid rgba(0,210,255,0.15); }
+
+        /* ── PET ── */
+        #pet-container { position:absolute; bottom:12%; right:5%; width:var(--pet-size); height:var(--pet-size); z-index:20; pointer-events:none; }
+        #dust-canvas { position:absolute; top:-50px; left:-50px; width:calc(var(--pet-size) + 100px); height:calc(var(--pet-size) + 100px); pointer-events:none; z-index:1; }
+        #blob { position:absolute; inset:0; border-radius:50%; pointer-events:auto; cursor:pointer; z-index:2;
+            background: radial-gradient(circle at 30% 20%,rgba(255,255,255,0.9) 0%,transparent 20%), radial-gradient(circle at 75% 75%,#ff3b00 0%,transparent 55%), radial-gradient(circle at 20% 70%,#0051ff 0%,transparent 60%), radial-gradient(circle at 80% 30%,#e91e63 0%,transparent 50%), radial-gradient(circle at 50% 50%,#d500f9 0%,transparent 70%), linear-gradient(135deg,#00d2ff 0%,#ff00a0 100%);
+            background-size:150% 150%;
+            box-shadow: inset 15px 15px 40px rgba(255,255,255,0.7),inset -15px -15px 40px rgba(0,0,0,0.4),0 0 30px rgba(0,0,0,0.5),0 0 60px rgba(233,30,99,0.2);
+            animation:morph 6s ease-in-out infinite,swirl 10s linear infinite;
+            transition:box-shadow 0.4s ease;
+        }
+        #blob::after { content:''; position:absolute; top:5%; left:10%; width:80%; height:80%; border-radius:50%; background:linear-gradient(180deg,rgba(255,255,255,0.8) 0%,transparent 40%); mix-blend-mode:overlay; pointer-events:none; }
+        .eyes-container { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:flex; gap:22px; z-index:3; pointer-events:none; transition:transform 0.08s; }
+        .eye { width:17px; height:36px; background:white; border-radius:20px; box-shadow:0 0 10px rgba(255,255,255,0.5); animation:blink 4s infinite; transform-origin:center; }
+        @keyframes morph { 0%{border-radius:50% 50% 50% 50%/50% 50% 50% 50%} 25%{border-radius:55% 45% 60% 40%/45% 55% 40% 60%} 50%{border-radius:45% 55% 40% 60%/55% 45% 60% 40%} 75%{border-radius:60% 40% 50% 50%/40% 60% 50% 50%} 100%{border-radius:50% 50% 50% 50%/50% 50% 50% 50%} }
+        @keyframes swirl { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+        @keyframes blink { 0%,94%,100%{transform:scaleY(1)} 97%{transform:scaleY(0.08)} }
+
+        /* Pet states */
+        #blob.idle    { animation:morph 6s ease-in-out infinite,swirl 10s linear infinite; }
+        #blob.happy   { animation:morph 3s ease-in-out infinite,swirl 6s linear infinite,petBounce 0.5s ease-in-out 2; box-shadow:inset 15px 15px 40px rgba(255,255,255,0.7),inset -15px -15px 40px rgba(0,0,0,0.4),0 0 60px rgba(255,200,0,0.5),0 0 100px rgba(255,200,0,0.2); }
+        #blob.listening { animation:morph 2.5s ease-in-out infinite,swirl 4s linear infinite; box-shadow:inset 15px 15px 40px rgba(255,255,255,0.7),inset -15px -15px 40px rgba(0,0,0,0.4),0 0 50px rgba(0,162,255,0.65),0 0 100px rgba(0,162,255,0.3); }
+        #blob.speaking { animation:morph 1.8s ease-in-out infinite,swirl 3s linear infinite,pulseSpeaking 0.5s ease-in-out infinite alternate; }
+        #blob.sleeping { animation:morphSlow 10s ease-in-out infinite,swirl 20s linear infinite; filter:brightness(0.6) saturate(0.5); }
+        #blob.click-flash { filter:brightness(2.2); }
+        #blob.scared { animation:morph 1s ease-in-out infinite,swirl 2s linear infinite,shake 0.3s ease-in-out 2; }
+
+        @keyframes pulseSpeaking { 0%{transform:scale(1);filter:brightness(1)} 100%{transform:scale(1.09);filter:brightness(1.25)} }
+        @keyframes petBounce { 0%{transform:scale(1)} 50%{transform:scale(1.15)} 100%{transform:scale(1)} }
+        @keyframes morphSlow { 0%{border-radius:50% 50% 50% 50%/50% 50% 50% 50%} 50%{border-radius:55% 45% 55% 45%/45% 55% 45% 55%} 100%{border-radius:50% 50% 50% 50%/50% 50% 50% 50%} }
+        @keyframes shake { 0%{transform:translateX(0)} 25%{transform:translateX(-5px)} 75%{transform:translateX(5px)} 100%{transform:translateX(0)} }
+
+        /* Sleeping eyes */
+        .eye.sleeping { height: 4px; border-radius: 2px; animation: none; }
+
+        #ui-overlay { position:absolute; bottom:-36px; left:50%; transform:translateX(-50%); text-align:center; z-index:20; pointer-events:none; white-space:nowrap; }
+        .status-pill { display:inline-block; padding:5px 14px; background:rgba(0,0,0,0.45); backdrop-filter:blur(10px); border-radius:20px; font-size:11px; font-weight:500; border:1px solid rgba(255,255,255,0.1); transition:all 0.3s ease; }
+
+        /* Click ripple */
+        .ripple { position:fixed; border-radius:50%; transform:translate(-50%,-50%) scale(0); animation:ripple-anim 0.7s ease-out forwards; pointer-events:none; z-index:9997; border:1.5px solid rgba(0,210,255,0.7); }
+        @keyframes ripple-anim { 0%{transform:translate(-50%,-50%) scale(0.4);opacity:0.9} 100%{transform:translate(-50%,-50%) scale(4);opacity:0} }
+
+        /* Paused overlay banner */
+        #paused-banner {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(233,30,99,0.15); border: 1px solid rgba(233,30,99,0.4);
+            border-radius: 30px; padding: 8px 24px;
+            font-size: 12px; font-weight: 600; letter-spacing: 1px;
+            backdrop-filter: blur(16px); z-index: 1001;
+            display: none; align-items: center; gap: 8px;
+            color: rgba(255,100,140,0.9);
+        }
+        #paused-banner.visible { display: flex; }
+        /* ── CALIBRATION OVERLAY ── */
+        #cal-overlay {
+            position: fixed; inset: 0; z-index: 2000;
+            background: rgba(10,10,18,0.97);
+            display: none; align-items: center; justify-content: center;
+            flex-direction: column; gap: 20px;
+        }
+        #cal-overlay.active { display: flex; }
+        #cal-instruction {
+            color: rgba(255,255,255,0.8); font-size: 15px; font-weight: 500;
+            letter-spacing: 0.5px; text-align: center; max-width: 420px;
+        }
+        .cal-dot {
+            position: fixed;
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            cursor: none; pointer-events: none;
+            display: none;
+        }
+        .cal-dot-inner {
+            width: 100%; height: 100%;
+            border-radius: 50%;
+            background: radial-gradient(circle at 40% 35%, rgba(255,255,255,0.9), rgba(0,210,255,0.7) 60%, transparent 80%);
+            border: 2px solid rgba(0,210,255,0.9);
+            box-shadow: 0 0 20px rgba(0,210,255,0.8), 0 0 40px rgba(0,210,255,0.3);
+            position: relative;
+        }
+        .cal-ring {
+            position: absolute; inset: -5px;
+            border-radius: 50%;
+            border: 2.5px solid transparent;
+            border-top-color: #00d2ff;
+            animation: none;
+        }
+        .cal-ring.filling {
+            animation: calFill 2s linear forwards;
+        }
+        @keyframes calFill {
+            0%   { transform: rotate(0deg);   border-color: rgba(0,210,255,0.2); border-top-color: #00d2ff; }
+            100% { transform: rotate(360deg); border-color: rgba(0,210,255,0.9); }
+        }
+        #cal-progress {
+            color: rgba(0,210,255,0.7); font-size: 12px; font-weight: 600;
+            letter-spacing: 2px; text-transform: uppercase;
+        }
+        #bubble-sandbox { display:none; position:fixed; inset:0; z-index:2000; background:rgba(10,8,35,.96); padding:7vh 8vw; }
+        #bubble-sandbox.active { display:block; }
+        #bubble-sandbox h2 { text-align:center; margin-bottom:22px; }
+        #bubble-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:16px; max-width:900px; margin:auto; }
+        .demo-bubble { aspect-ratio:1; border:0; border-radius:50%; background:radial-gradient(circle at 35% 30%,#fff9,#fff1 35%,#20d2ff 100%); box-shadow:0 0 22px #31caff66; cursor:pointer; transition:transform .12s,opacity .2s; }
+        .demo-bubble:hover { transform:scale(1.08); }
+        .demo-bubble.popped { transform:scale(1.5); opacity:0; pointer-events:none; }
+        #bubble-close { position:absolute; top:20px; right:28px; }
+        body.ninja-mode { filter:hue-rotate(125deg) saturate(1.3); }
+        body.snoozed::before { background:rgba(0,0,0,.92); }
+        body.zoomies #pet-container { animation:zoomies .28s infinite alternate ease-in-out; }
+        @keyframes zoomies { to { transform:translate(30px,-16px) rotate(9deg) scale(1.12); } }
+        #cal-skip-btn {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.5); padding: 8px 20px; border-radius: 8px;
+            font-family: inherit; font-size: 12px; cursor: pointer;
+            transition: all 0.2s;
+        }
+        #cal-skip-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+
+        .nav-item { background:transparent; border:0; padding:0; font-family:inherit; width:100%; }
+        .nav-item.active { color:#fff; }
+        .app-view { display:none; position:absolute; z-index:12; top:50%; left:50%; transform:translate(-50%,-50%); width:min(760px,calc(100% - 48px)); max-height:82vh; overflow:auto; padding:30px; border:1px solid rgba(255,255,255,.13); border-radius:20px; background:rgba(10,12,35,.91); backdrop-filter:blur(20px); box-shadow:0 22px 70px #0008; }
+        .app-view.active { display:block; }
+        .app-view h1 { font-size:28px; margin:8px 0; }
+        .view-subtitle { color:#a8abc4; line-height:1.6; margin:0 0 20px; font-size:13px; }
+        .view-back { color:#b8eaff; background:transparent; border:0; cursor:pointer; font:inherit; padding:4px 0; }
+        .view-controls { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:16px; }
+        .view-controls button { background:rgba(255,255,255,.08); color:white; border:1px solid rgba(255,255,255,.16); border-radius:9px; padding:10px 14px; cursor:pointer; font:inherit; }
+        .view-controls button.primary { background:linear-gradient(135deg,#00a9d0,#6a43d6); }
+        .theremin-stage { height:min(38vh,300px); min-height:210px; position:relative; border:1px solid #ffffff20; border-radius:16px; overflow:hidden; background:linear-gradient(135deg,#12234a,#241337 65%,#131329); }
+        .theremin-crosshair { position:absolute; width:26px; height:26px; left:50%; top:50%; transform:translate(-50%,-50%); border:2px solid #89f4ff; border-radius:50%; box-shadow:0 0 22px #00d2ff; transition:left .08s linear,top .08s linear; }
+        .theremin-axis-x,.theremin-axis-y { position:absolute; color:#c3c5dc; font-size:10px; letter-spacing:1px; opacity:.8; }
+        .theremin-axis-x { bottom:12px; left:50%; transform:translateX(-50%); }.theremin-axis-y { top:12px; left:12px; line-height:1.8; }
+        .ml-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+        .ml-stats article { display:flex; flex-direction:column; gap:8px; background:#ffffff0a; border:1px solid #ffffff12; padding:14px; border-radius:12px; }
+        .ml-stats article span { color:#a8abc4; font-size:11px; }.ml-stats article strong { font-size:14px; }
+        .settings-grid { display:grid; grid-template-columns:minmax(130px,1fr) minmax(150px,1.2fr); gap:15px; align-items:center; margin:24px 0; }
+        .settings-grid label { color:#dddff0; font-size:13px; }.settings-grid select { padding:10px; border-radius:9px; color:white; background:#17172d; border:1px solid #ffffff22; }.settings-grid input[type=range] { width:100%; accent-color:#00d2ff; }
+        @media(max-width:650px) { .app-view { padding:20px; width:calc(100% - 24px); }.ml-stats { grid-template-columns:1fr 1fr; }.settings-grid { grid-template-columns:1fr; gap:8px; } }
+    </style>
 </head>
-<body>
-  <!-- Global Canvas for Custom Cursors, Particles & Trails -->
-  <canvas id="fx-canvas"></canvas>
+<body class="home-active">
+    <!-- Paused overlay -->
+    <div id="paused-banner" id="paused-banner">⏸ GAZE PAUSED — press SPACEBAR to resume</div>
 
-  <!-- Top Navigation Bar -->
-  <header class="hud-header">
-    <div class="hud-brand">
-      <div class="brand-badge">AURA</div>
-      <span class="hud-tagline">Multimodal Intent Fusion</span>
+    <!-- Voice command toast -->
+    <div id="voice-toast"><span class="mic-icon">🎙️</span><span id="voice-text"></span></div>
+    <div id="bubble-sandbox"><button id="bubble-close">Close demo</button><h2>Bubble Wrap Test · <span id="bubble-score">0</span> popped</h2><div id="bubble-grid"></div></div>
+
+    <!-- Telemetry HUD -->
+    <div id="telemetry-hud">
+        <div class="hud-pill"><div class="hud-dot" id="ws-dot"></div><span id="ws-label">connecting…</span></div>
+        <div class="hud-pill"><div class="hud-dot" id="face-dot"></div><span id="face-label">no face</span></div>
+        <div class="hud-pill" id="click-pill" style="display:none;"><div class="hud-dot click active"></div><span>click</span></div>
     </div>
 
-    <!-- Active Mode Navigation -->
-    <nav class="hud-nav">
-      <button class="nav-tab active" data-tab="nova-pet">✨ Nova Voice Pet</button>
-      <button class="nav-tab" data-tab="onboarding">🐾 Gaze Calibration</button>
-      <button class="nav-tab" data-tab="bubblewrap">🫧 Bubble Wrap Demo</button>
-      <button class="nav-tab" data-tab="theremin">🎵 Eye-Theremin</button>
-      <button class="nav-tab" data-tab="diagnostics">📊 Live Telemetry & 3D Face</button>
-    </nav>
-
-    <!-- Failsafe Status Indicators -->
-    <div class="hud-status">
-      <div id="status-camera" class="status-pill offline" title="Live Camera & Gaze Tracking State">📷 Camera: Scanning...</div>
-      <div id="status-connected" class="status-pill offline">WebSocket Offline</div>
-      <div id="status-failsafe" class="status-pill normal">Failsafe: Active</div>
-      <button id="btn-killswitch" class="killswitch-btn" title="Emergency Spacebar abort">SPACE: KILLSWITCH</button>
+    <div id="desktop-app">
+        <nav class="sidebar" id="sidebar">
+            <div class="menu-icon" id="menu-icon">
+                <div class="line"></div><div class="line"></div><div class="line"></div>
+            </div>
+            <div class="nav-items" aria-label="AURA sections">
+                <button type="button" class="nav-item" data-view="bubble" aria-label="Open Bubble Wrap demo"><span class="nav-icon">🫧</span><span>Bubble Wrap Demo</span></button>
+                <button type="button" class="nav-item" data-view="theremin" aria-label="Open Eye Theremin"><span class="nav-icon">🎵</span><span>Eye Theremin</span></button>
+                <button type="button" class="nav-item" data-view="ml-model" aria-label="Open Live Telemetry and ML"><span class="nav-icon">📊</span><span>Live Telemetry &amp; ML</span></button>
+                <button type="button" class="nav-item" data-view="settings" aria-label="Open Settings"><span class="nav-icon">⚙️</span><span>Settings</span></button>
+            </div>
+        </nav>
+        <main class="main-content">
+            <div class="top-right-logo"><h2 class="app-logo-text">aura</h2></div>
+            <div class="center-content">
+                <div class="title-wrapper">
+                    <div class="halftone-background"></div>
+                    <h1 class="main-title">meet flipping the pet</h1>
+                </div>
+                <p class="sub-text">Tap Flipping to start talking. Say what you want done and Flipping will listen and reply aloud.</p>
+                <div class="action-buttons">
+                    <button id="btn-collab">pet collaboration</button>
+                    <button id="btn-webcam">start webcam</button>
+                    <button id="btn-calibrate" class="primary" style="background:linear-gradient(135deg,#00d2ff,#7b2ff7);">🎯 calibrate gaze</button>
+                </div>
+                <div class="selection-settings" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:12px;margin:18px auto 0;padding:14px 18px;max-width:760px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(10,12,35,.72);">
+                    <label for="selection-mode">Select with</label>
+                    <select id="selection-mode"><option value="both">Dwell + blink</option><option value="dwell">Dwell only</option><option value="blink">Blink only</option></select>
+                    <select id="dwell-click-type" aria-label="Dwell click type"><option value="left">Left click</option><option value="right">Right click</option><option value="double">Double click</option></select>
+                    <label for="dwell-time">Dwell delay <output id="dwell-time-value">1.5 s</output></label>
+                    <input id="dwell-time" type="range" min="0.3" max="8" step="0.1" value="1.5" style="width:min(240px,60vw);accent-color:#00d2ff;">
+                </div>
+                <div id="chat-interface">
+                    <div id="chat-history">
+                        <div class="chat-message chat-bot">Hi, I’m Flipping. Tap the pet and I’ll greet you, listen for your commands, and tell you when I’ve done them.</div>
+                    </div>
+                    <div id="voice-listening-status" role="status" style="font-size:12px;opacity:.8;margin:8px 2px">Click Flipping to start the voice assistant.</div>
+                </div>
+            </div>
+            <section id="view-theremin" class="app-view" aria-labelledby="theremin-title">
+                <button type="button" class="view-back" data-view="home">← Home</button>
+                <h1 id="theremin-title">Eye Theremin</h1>
+                <p class="view-subtitle">Move your gaze across the screen to change pitch and up or down to change volume.</p>
+                <div class="theremin-stage" id="theremin-stage"><div class="theremin-crosshair" id="theremin-crosshair"></div><span class="theremin-axis-x">LOW PITCH ← → HIGH PITCH</span><span class="theremin-axis-y">LOUD ↑<br>QUIET ↓</span></div>
+                <div class="view-controls"><button type="button" id="theremin-start" class="primary">Start sound</button><span id="theremin-status" role="status">Sound is off · camera waiting</span><span id="theremin-note">— Hz</span></div>
+            </section>
+            <section id="view-ml-model" class="app-view" aria-labelledby="ml-title">
+                <button type="button" class="view-back" data-view="home">← Home</button>
+                <h1 id="ml-title">Live Telemetry &amp; ML</h1>
+                <p class="view-subtitle">See the live tracking state and calibrate the gaze and acoustic click models.</p>
+                <div class="ml-stats">
+                    <article><span>Camera / face</span><strong id="ml-face-state">Waiting</strong></article>
+                    <article><span>Gaze model</span><strong id="ml-gaze-state">Checking…</strong></article>
+                    <article><span>Audio click model</span><strong id="ml-audio-state">Checking…</strong></article>
+                    <article><span>Cursor estimate</span><strong id="ml-coordinate">—</strong></article>
+                    <article><span>Sound samples</span><strong id="ml-samples">0 click · 0 noise</strong></article>
+                    <article><span>Click confidence</span><strong id="ml-confidence">0%</strong></article>
+                </div>
+                <div class="view-controls ml-actions"><button type="button" id="ml-calibrate-gaze" class="primary">Calibrate gaze model</button><button type="button" id="ml-record-click">Record click sound</button><button type="button" id="ml-record-noise">Record background sound</button><button type="button" id="ml-train-audio">Train audio model</button></div>
+                <p id="ml-message" class="view-subtitle" role="status">Keep your face in frame. The counters update from the live engine.</p>
+            </section>
+            <section id="view-settings" class="app-view" aria-labelledby="settings-title">
+                <button type="button" class="view-back" data-view="home">← Home</button>
+                <h1 id="settings-title">Settings</h1>
+                <p class="view-subtitle">Adjust how AURA selects targets and moves over accessible buttons.</p>
+                <div class="settings-grid">
+                    <label for="settings-selection-mode">Selection method</label><select id="settings-selection-mode"><option value="both">Dwell + blink</option><option value="dwell">Dwell only</option><option value="blink">Blink only</option></select>
+                    <label for="settings-click-type">Dwell click type</label><select id="settings-click-type"><option value="left">Left click</option><option value="right">Right click</option><option value="double">Double click</option></select>
+                    <label for="settings-dwell-time">Dwell delay <output id="settings-dwell-value">1.5 s</output></label><input id="settings-dwell-time" type="range" min="0.3" max="8" step="0.1" value="1.5">
+                    <label for="settings-magnetic">Sticky button friction</label><select id="settings-magnetic"><option value="off">Off</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Very high</option></select>
+                </div>
+                <p class="view-subtitle">Sticky friction slows cursor movement while it is over a detected button. It never snaps the cursor to a button.</p>
+            </section>
+            <div id="pet-container">
+                <canvas id="dust-canvas"></canvas>
+                <div id="blob">
+                    <div class="eyes-container" id="eyes">
+                        <div class="eye" id="eye-l"></div>
+                        <div class="eye" id="eye-r"></div>
+                    </div>
+                </div>
+                <div id="ui-overlay">
+                    <div class="status-pill" id="status-pill">click to wake</div>
+                </div>
+            </div>
+        </main>
     </div>
-  </header>
 
-  <!-- Main View Container -->
-  <main class="hud-main">
+<script>
+/* ── ELEMENTS ── */
+const petContainer=document.getElementById('pet-container'),blob=document.getElementById('blob'),eyesEl=document.getElementById('eyes'),eyeL=document.getElementById('eye-l'),eyeR=document.getElementById('eye-r'),dustCanvas=document.getElementById('dust-canvas'),ctx=dustCanvas.getContext('2d'),statusPill=document.getElementById('status-pill');
+const wsDot=document.getElementById('ws-dot'),wsLabel=document.getElementById('ws-label'),faceDot=document.getElementById('face-dot'),faceLabel=document.getElementById('face-label'),clickPill=document.getElementById('click-pill');
+const pausedBanner=document.getElementById('paused-banner'),voiceToast=document.getElementById('voice-toast'),voiceText=document.getElementById('voice-text');
 
-    <!-- 0. LIQUID VOICE ASSISTANT PET VIEW (NOVA) -->
-    <section id="view-nova-pet" class="view-panel active">
-      <div id="pet-container">
-        <canvas id="dust-canvas"></canvas>
-        <div id="blob">
-          <div class="eyes-container" id="pet-eyes">
-            <div class="eye"></div>
-            <div class="eye"></div>
-          </div>
-        </div>
-      </div>
+/* ── SIDEBAR ── */
+document.getElementById('menu-icon').addEventListener('click',()=>document.body.classList.toggle('sidebar-collapsed'));
+function showView(name){
+    if(name==='bubble'){document.body.classList.remove('home-active');document.getElementById('bubble-sandbox').classList.add('active');return;}
+    document.body.classList.toggle('home-active',name==='home');
+    document.querySelectorAll('.app-view').forEach(v=>v.classList.toggle('active',v.id==='view-'+name));
+    document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
+    document.querySelector('.center-content').style.display=name==='home'?'block':'none';
+}
+document.querySelectorAll('.nav-item,.view-back').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view||'home')));
+document.getElementById('bubble-close').addEventListener('click',()=>{document.getElementById('bubble-sandbox').classList.remove('active');document.body.classList.add('home-active');});
 
-      <div id="ui-overlay">
-        <h1>Nova</h1>
-        <p>Your liquid voice companion</p>
-        <div class="pet-status-pill" id="pet-status">Click pet to wake up</div>
-        <div class="voice-command-hints">
-          <span class="cmd-hint-badge">🗣️ "zoom"</span>
-          <span class="cmd-hint-badge">🗣️ "scroll down"</span>
-          <span class="cmd-hint-badge">🗣️ "click"</span>
-          <span class="cmd-hint-badge">🗣️ "right click"</span>
-          <span class="cmd-hint-badge">🗣️ "search [query]"</span>
-          <span class="cmd-hint-badge">🗣️ "hey nova"</span>
-        </div>
-      </div>
-    </section>
+/* ── DUST PARTICLES ── */
+const CANVAS_SIZE=240; dustCanvas.width=dustCanvas.height=CANVAS_SIZE;
+const particles=Array.from({length:42},()=>({angle:Math.random()*Math.PI*2,speed:Math.random()*0.018+0.004,radius:Math.random()*110+28,size:Math.random()*2+0.5}));
+function drawDust(){ctx.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);const cx=CANVAS_SIZE/2,cy=CANVAS_SIZE/2;particles.forEach(p=>{p.angle+=p.speed*petSpeedMult;const x=cx+Math.cos(p.angle)*p.radius,y=cy+Math.sin(p.angle)*p.radius;ctx.beginPath();ctx.arc(x,y,p.size,0,Math.PI*2);ctx.fillStyle=`rgba(255,215,120,${(Math.random()*0.4+0.25).toFixed(2)})`;ctx.fill();});}
 
-    <!-- 1. VIRTUAL PET CALIBRATION VIEW -->
-    <section id="view-onboarding" class="view-panel">
-      <div class="calibration-container">
-        <div class="calib-intro">
-          <h2>Feed Pippin the Pet!</h2>
-          <p>Look at each apple as it appears and make your custom click sound to feed Pippin.<br>
-             This automatically maps your head/iris geometry and trains your acoustic classifier.</p>
-          <div class="calib-actions">
-            <button id="btn-start-calibration" class="action-btn glow">Start 9-Point Calibration</button>
-            <button id="btn-audio-setup" class="action-btn secondary">Sound Calibration (Click vs Noise)</button>
-          </div>
-        </div>
+/* ── MOUSE tracking for eye parallax ── */
+let mouseX=window.innerWidth/2,mouseY=window.innerHeight/2;
+let gazeX=window.innerWidth/2,gazeY=window.innerHeight/2;
+let gazeEnabled=true,faceDetected=false;
+window.addEventListener('mousemove',e=>{mouseX=e.clientX;mouseY=e.clientY;});
 
-        <!-- 9-Point Interactive Apple Targets -->
-        <div id="apple-target" class="apple-target hidden">
-          <div class="apple-visual">🍎</div>
-          <div class="target-pulse"></div>
-          <div class="target-label" id="target-label">Target 1/9</div>
-        </div>
+/* Click ripple */
+window.addEventListener('mousedown',e=>{const r=document.createElement('div');r.className='ripple';r.style.cssText=`left:${e.clientX}px;top:${e.clientY}px;width:60px;height:60px;`;document.body.appendChild(r);setTimeout(()=>r.remove(),700);});
 
-        <!-- Audio Setup Modal / Subview -->
-        <div id="audio-modal" class="audio-modal hidden">
-          <div class="audio-modal-card">
-            <h3>Sound Profile Tuning</h3>
-            <p>1. Record 5 clicks (tongue pop, hum, or palate click):</p>
-            <div class="rec-group">
-              <button id="btn-rec-click" class="action-btn">Record Click Sample (<span id="count-click">0</span>/5)</button>
-            </div>
-            <p style="margin-top: 15px;">2. Record 5 supra-threshold noises (cough, speech, typing):</p>
-            <div class="rec-group">
-              <button id="btn-rec-noise" class="action-btn secondary">Record Noise Sample (<span id="count-noise">0</span>/5)</button>
-            </div>
-            <div class="modal-footer" style="margin-top: 20px;">
-              <button id="btn-finish-audio" class="action-btn glow">Calculate R_max & Save</button>
-              <button id="btn-close-audio" class="action-btn text">Close</button>
-            </div>
-          </div>
-        </div>
+/* ── PET STATE MACHINE ── */
+let petState='idle';          // idle | happy | listening | speaking | sleeping | scared
+let petSpeedMult=1;           // particle animation speed multiplier
+let isSessionActive=false;
+let voiceSessionActive=false;
+let idleTimer=null, sleepTimer=null, petActivityTimer=null;
+let lastPetActivity=Date.now();
 
-        <!-- Calibration Results HUD -->
-        <div id="calib-results-card" class="calib-card hidden">
-          <h3>🎉 Calibration Matrix Computed!</h3>
-          <div class="metrics-grid">
-            <div class="metric-box">
-              <div class="metric-val" id="val-overall-err">--</div>
-              <div class="metric-lbl">Overall Mean Error</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-val" id="val-center-err">--</div>
-              <div class="metric-lbl">Center (Interpolation)</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-val" id="val-edge-err">--</div>
-              <div class="metric-lbl">Edge Error</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-val" id="val-corner-err">--</div>
-              <div class="metric-lbl">Corner (Extrapolation)</div>
-            </div>
-          </div>
-          <div class="calib-footer">
-            <button id="btn-goto-bubbles" class="action-btn glow">Test on Bubble Wrap Sandbox →</button>
-          </div>
-        </div>
-      </div>
-    </section>
+function setStatus(s){statusPill.textContent=s;}
 
-    <!-- 2. BUBBLE WRAP TEST SANDBOX -->
-    <section id="view-bubblewrap" class="view-panel">
-      <div class="sandbox-header">
-        <div>
-          <h2>The Bubble Wrap Test</h2>
-          <p>Visually proving speed, accuracy, and joy. Target any bubble and make your click sound to pop it!</p>
-        </div>
-        <div class="bubble-stats">
-          <div class="b-stat">Popped: <span id="stat-popped">0</span></div>
-          <div class="b-stat">Accuracy: <span id="stat-accuracy">100%</span></div>
-          <button id="btn-reset-bubbles" class="action-btn small">Reset Grid</button>
-        </div>
-      </div>
-      <div id="bubble-grid" class="bubble-grid">
-        <!-- 32 bubbles generated via JS -->
-      </div>
-    </section>
+function setPetState(state){
+    if(petState===state)return;
+    petState=state;
+    blob.className=state;
+    lastPetActivity=Date.now();
 
-    <!-- 3. EYE-THEREMIN PLAY MODE -->
-    <section id="view-theremin" class="view-panel">
-      <div class="sandbox-header">
-        <div>
-          <h2>Eye-Theremin Play Mode</h2>
-          <p>Look at different musical zones and hum or make your sound to express music!</p>
-        </div>
-      </div>
-      <div class="theremin-grid">
-        <div class="theremin-note" data-note="C4" style="--note-color: #ff4757;"><span>C4</span></div>
-        <div class="theremin-note" data-note="D4" style="--note-color: #ffa502;"><span>D4</span></div>
-        <div class="theremin-note" data-note="E4" style="--note-color: #2ed573;"><span>E4</span></div>
-        <div class="theremin-note" data-note="F4" style="--note-color: #1e90ff;"><span>F4</span></div>
-        <div class="theremin-note" data-note="G4" style="--note-color: #3742fa;"><span>G4</span></div>
-        <div class="theremin-note" data-note="A4" style="--note-color: #a55eea;"><span>A4</span></div>
-        <div class="theremin-note" data-note="B4" style="--note-color: #ff6b81;"><span>B4</span></div>
-        <div class="theremin-note" data-note="C5" style="--note-color: #70a1ff;"><span>C5</span></div>
-      </div>
-    </section>
+    // Eye visual changes
+    const sleeping = state==='sleeping';
+    eyeL.className='eye'+(sleeping?' sleeping':'');
+    eyeR.className='eye'+(sleeping?' sleeping':'');
 
-    <!-- 4. LIVE TELEMETRY & ML DIAGNOSTICS -->
-    <section id="view-diagnostics" class="view-panel">
-      <div class="diag-layout">
-        <div class="diag-card">
-          <h3>Gaze Coordinates & Pose</h3>
-          <p>Smoothed Screen Pos: (<span id="t-x">0</span>, <span id="t-y">0</span>)</p>
-          <p>Head Pose: Yaw: <span id="t-yaw">0°</span> | Pitch: <span id="t-pitch">0°</span> | Roll: <span id="t-roll">0°</span></p>
-          <div class="bar-container">
-            <label>Pitch (Abort at >25°):</label>
-            <div class="bar-track"><div id="bar-pitch" class="bar-fill" style="width: 20%;"></div></div>
-          </div>
-        </div>
+    // Particle speed
+    const speeds={idle:1,happy:2.5,listening:1.8,speaking:2.2,sleeping:0.3,scared:3};
+    petSpeedMult=speeds[state]||1;
 
-        <div class="diag-card">
-          <h3>Blendshapes & Blink Failsafe</h3>
-          <p>Left Blink: <span id="t-blink-l">0.0</span> | Right Blink: <span id="t-blink-r">0.0</span></p>
-          <p>Dynamic Threshold: <span id="t-dyn-thresh">0.50</span></p>
-          <p>Cursor Lock Status: <span id="t-lock-status" class="tag-status">Active</span></p>
-        </div>
+    // Status text
+    const labels={idle:'online',happy:'yay! 🎉',listening:'listening…',speaking:'speaking…',sleeping:'zzz…',scared:'scared!'};
+    setStatus(labels[state]||state);
+}
 
-        <div class="diag-card">
-          <h3>Acoustic Intent Engine</h3>
-          <p>RMS Energy: <span id="t-rms">0.00</span> | Noise Floor: <span id="t-nfloor">0.00</span></p>
-          <p>Click Intent: <span id="t-click-intent" class="tag-click">False</span> (Conf: <span id="t-conf">0%</span>)</p>
-          <div class="bar-container">
-            <label>Microphone Gate:</label>
-            <div class="bar-track"><div id="bar-rms" class="bar-fill green" style="width: 10%;"></div></div>
-          </div>
-          <div style="margin-top: 15px;">
-            <button id="btn-oops-learn" class="action-btn small glow">"Oops, learn that" (Ingest Last 1.5s)</button>
-          </div>
-        </div>
+function wakeUp(){
+    document.body.classList.remove('snoozed');
+    isSessionActive=true;
+    setPetState('happy');
+    clearTimeout(sleepTimer);
+    setTimeout(()=>{if(petState==='happy')setPetState('idle');},1200);
+}
 
-        <div class="diag-card">
-          <h3>Cursor Cosmetics & Settings</h3>
-          <label>Select Cursor Persona:</label>
-          <div class="persona-selector">
-            <button class="persona-btn active" data-persona="ufo">🛸 The UFO</button>
-            <button class="persona-btn" data-persona="wand">🪄 Magic Wand</button>
-            <button class="persona-btn" data-persona="ink">🖌️ Ink Brush</button>
-          </div>
-          <div style="margin-top: 15px;">
-            <label>Deadband Radius: <span id="lbl-deadband">15px</span></label>
-            <input type="range" id="slider-deadband" min="5" max="35" value="15" style="width: 100%;">
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
+function goSleep(){
+    if(!isSessionActive)setPetState('sleeping');
+}
 
-  <!-- REACTIVE DESKTOP BUDDY MASCOT WIDGET -->
-  <aside id="desktop-buddy" class="desktop-buddy">
-    <div class="buddy-body">
-      <div class="buddy-eyes">
-        <div class="eye"><div class="pupil" id="pupil-left"></div></div>
-        <div class="eye"><div class="pupil" id="pupil-right"></div></div>
-      </div>
-      <div class="buddy-mouth"></div>
-      <div id="buddy-cap" class="sleeping-cap hidden">💤</div>
-    </div>
-    <div class="buddy-speech" id="buddy-speech">Pippin is ready!</div>
-  </aside>
+/* Idle timers — after 8s idle → sleeping */
+function resetIdleTimer(){
+    lastPetActivity=Date.now();
+    clearTimeout(sleepTimer);
+    if(voiceSessionActive)return;
+    if(isSessionActive){
+        sleepTimer=setTimeout(()=>{isSessionActive=false;setPetState('sleeping');},8000);
+    }
+}
 
-  <!-- Dwell-to-Zoom "Sniper" Magnifier Bubble -->
-  <div id="sniper-bubble" class="sniper-bubble hidden">
-    <div class="sniper-crosshair"></div>
-    <div class="sniper-zoom-tag">3x Zoom</div>
-  </div>
+/* ── GAZE CURSOR TRACKING (system overlay handles rendering) ── */
+let curGazeX=gazeX,curGazeY=gazeY;
 
-  <!-- Snooze Dim Overlay -->
-  <div id="snooze-overlay" class="snooze-overlay">
-    <div class="snooze-card">
-      <div style="font-size: 54px; margin-bottom: 12px;">🌙💤</div>
-      <h2>Aura is Snoozing</h2>
-      <p>A "Shhhhh" snooze sound was detected.<br>Make your custom click sound or tap to Wake Up.</p>
-  <!-- PERSISTENT FLOATING QUICK-BAR (BOTTOM-LEFT) -->
-  <div id="floating-quick-bar" class="floating-quick-bar">
-    <div class="quick-bar-header">
-      <div class="quick-bar-title">
-        <span class="pulse-dot"></span> AURA DOCK
-      </div>
-      <button id="btn-quick-collapse" class="quick-bar-collapse-btn" title="Collapse / Expand Dock">−</button>
-    </div>
-    <div class="quick-bar-body">
-      <div class="quick-toggles-row">
-        <button id="quick-toggle-cam" class="quick-btn active" title="Toggle Webcam">📷 Cam: ON</button>
-        <button id="quick-toggle-voice" class="quick-btn active" title="Toggle Voice Recognition">🎤 Voice: ON</button>
-        <button id="quick-toggle-gaze" class="quick-btn active" title="Toggle Eye Cursor Movement">👁️ Gaze: ON</button>
-        <button id="quick-toggle-zoom" class="quick-btn" title="Toggle Screen Magnifier at Cursor">🔍 Zoom</button>
-      </div>
-      <div class="quick-sliders-container">
-        <div class="quick-slider-item">
-          <div class="quick-slider-label">
-            <span>⏱️ Dwell Time</span>
-            <span id="quick-dwell-val" class="slider-badge">1.0s</span>
-          </div>
-          <input type="range" id="quick-dwell-slider" min="0.4" max="3.0" step="0.1" value="1.0" class="aura-slider">
-        </div>
-        <div class="quick-slider-item">
-          <div class="quick-slider-label">
-            <span>🧲 Magnetic Snap</span>
-            <span id="quick-magnet-val" class="slider-badge">High (70px)</span>
-          </div>
-          <input type="range" id="quick-magnet-slider" min="0" max="4" step="1" value="3" class="aura-slider">
-        </div>
-      </div>
-      <div class="quick-bar-footer">
-        <div id="quick-distance-advisor" class="quick-advisor-badge">🟢 Distance: Optimal (52cm)</div>
-      </div>
-    </div>
-  </div>
 
-  <script src="app.js"></script>
+/* ── MAIN ANIMATION LOOP ── */
+let t=0;
+function animate(){
+    t+=0.04;
+    const hy=Math.sin(t)*(petState==='sleeping'?2:9);
+    const hx=Math.cos(t*0.75)*(petState==='sleeping'?1:4);
+    petContainer.style.transform=`translate(${hx}px,${hy}px)`;
+
+    /* Eye parallax — follow gaze position when face detected, else mouse */
+    const trackX=faceDetected&&gazeEnabled?gazeX:mouseX;
+    const trackY=faceDetected&&gazeEnabled?gazeY:mouseY;
+    const rect=petContainer.getBoundingClientRect();
+    const cx=rect.left+rect.width/2,cy=rect.top+rect.height/2;
+    const dx=trackX-cx,dy=trackY-cy;
+    const dist=Math.min(Math.sqrt(dx*dx+dy*dy),100),ang=Math.atan2(dy,dx);
+    const ex=Math.cos(ang)*dist*0.13,ey=Math.sin(ang)*dist*0.13;
+
+    if(petState!=='sleeping'){
+        eyesEl.style.transform=`translate(calc(-50% + ${ex}px),calc(-50% + ${ey}px))`;
+    } else {
+        eyesEl.style.transform=`translate(-50%,-50%)`;
+    }
+
+    // Pet reacts when gaze is on it
+    if(faceDetected&&gazeEnabled){
+        const petRect=petContainer.getBoundingClientRect();
+        const onPet=gazeX>petRect.left&&gazeX<petRect.right&&gazeY>petRect.top&&gazeY<petRect.bottom;
+        if(onPet&&(petState==='idle'||petState==='sleeping')){
+            setPetState('happy');
+            clearTimeout(petActivityTimer);
+            petActivityTimer=setTimeout(()=>{if(petState==='happy')setPetState('idle');},1500);
+        }
+    }
+
+    drawDust();
+    requestAnimationFrame(animate);
+}
+animate();
+
+// Start sleeping after 4s if not awakened
+sleepTimer=setTimeout(()=>{if(!isSessionActive)setPetState('sleeping');},4000);
+
+function toggleVoiceSession(){
+    if(!ws||ws.readyState!==WebSocket.OPEN){voiceStatus('AURA engine is offline. Restart AURA and try again.');return;}
+    voiceSessionActive=!voiceSessionActive;
+    isSessionActive=voiceSessionActive;
+    ws.send(JSON.stringify({type:'update_settings',voice_listening:voiceSessionActive}));
+    if(voiceSessionActive){
+        clearTimeout(sleepTimer);
+        document.body.classList.remove('snoozed');
+        setPetState('listening');
+        voiceStatus('Starting local voice assistant…','#8fe3bd');
+        ws.send(JSON.stringify({type:'speech_text',text:'hello flipping'}));
+    }else{
+        setPetState('idle');
+        voiceStatus('Voice assistant paused. Tap Flipping to resume.');
+    }
+}
+
+function voiceStatus(message,color='#ffd38a'){
+    const el=document.getElementById('voice-listening-status');
+    el.textContent=message;el.style.color=color;statusPill.textContent=message;
+}
+
+blob.setAttribute('role','button');
+blob.setAttribute('tabindex','0');
+blob.setAttribute('aria-label','Click Flipping to start or pause the local voice assistant');
+blob.addEventListener('click',toggleVoiceSession);
+blob.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleVoiceSession();}});
+
+/* ── WEBSOCKET ── */
+let ws=null,wsReconnect=null,clickFlashTimer=null,calibrationOutcome=null;
+
+function connectWS(){
+    if(ws)return;
+    ws=new WebSocket('ws://127.0.0.1:8765');
+    ws.onopen=()=>{wsDot.classList.add('active');wsLabel.textContent='connected';clearTimeout(wsReconnect);updateSelection();};
+    ws.onclose=()=>{wsDot.classList.remove('active');wsLabel.textContent='reconnecting…';faceDot.classList.remove('active');faceLabel.textContent='no face';faceDetected=false;ws=null;wsReconnect=setTimeout(connectWS,2000);};
+    ws.onerror=()=>ws.close();
+    ws.onmessage=evt=>{
+        let d; try{d=JSON.parse(evt.data);}catch{return;}
+
+        /* Spacebar cursor_state from macos_controller */
+        if(d.type==='cursor_state'){
+            gazeEnabled=d.enabled;
+            pausedBanner.className=gazeEnabled?'':'visible';
+            return;
+        }
+
+        if(d.type==='voice_status'){const el=document.getElementById('voice-listening-status');voiceSessionActive=Boolean(d.listening);isSessionActive=voiceSessionActive;el.textContent=d.error?'Local voice assistant unavailable: '+d.error:(d.listening?(d.message||'I’m listening on this device. Say a command whenever you’re ready. Tap Flipping to pause.'):'Click Flipping to start the local voice assistant.');el.style.color=d.error?'#ff9b9b':(d.listening?'#8fe3bd':'#ffd38a');if(d.listening){clearTimeout(sleepTimer);setPetState('listening');}else if(!d.error){setPetState('idle');setStatus('tap Flipping to talk');}return;}
+        if(d.type==='camera_state'){document.getElementById('btn-webcam').textContent=d.enabled?'stop webcam':'start webcam';return;}
+        if(d.status==='audio_click_recorded'){mlClickCount=d.count||mlClickCount+1;document.getElementById('ml-message').textContent='Saved click sample '+mlClickCount+'. Record several distinct clicks before training.';return;}
+        if(d.status==='audio_noise_recorded'){mlNoiseCount=d.count||mlNoiseCount+1;document.getElementById('ml-message').textContent='Saved noise sample '+mlNoiseCount+'. Record several background/noise samples before training.';return;}
+        if(d.status==='audio_calibration_finished'){document.getElementById('ml-message').textContent='Audio model trained. Click samples: '+d.evaluation.click_samples_count;replyPet('Sound model trained with '+d.evaluation.click_samples_count+' click samples.');return;}
+        if(d.status==='oops_learned'){replyPet('Learned a verified click example. The model now has '+d.count+' on-the-fly examples.');return;}
+        if(d.status==='oops_learn_error'){replyPet(d.message||'Train the sound model before adding examples.');return;}
+        if(d.error){replyPet(d.error);return;}
+        if(d.status==='gaze_calibration_finished'){calibrationOutcome=true;calProgress.textContent='Calibration complete';calSub.textContent='Gaze model trained. Mean error: '+Math.round(d.diagnostics.overall_mean_px)+' px';}
+        if(d.status==='gaze_calibration_error'){calibrationOutcome=d.message||'Please repeat calibration.';calProgress.textContent='Calibration needs more samples';calSub.textContent=calibrationOutcome;}
+        /* Local voice feedback toast */
+        if(d.type==='voice_feedback'){
+            voiceText.textContent=`"${d.heard}" → ${d.response}`;
+            voiceToast.classList.add('visible');
+            clearTimeout(voiceToast._t);
+            voiceToast._t=setTimeout(()=>voiceToast.classList.remove('visible'),3500);
+            if(d.heard&&d.heard!=='AURA started')addMsg(d.heard,'user');
+            if(d.response)addMsg(d.response,'bot');
+            // Native local speech avoids WebView autoplay blocking; keep the pet in sync.
+            if(d.response.toLowerCase().startsWith('snoozing')){if(!d.native_speech)speakPet(d.response);isSessionActive=false;document.body.classList.add('snoozed');setPetState('sleeping');}
+            else if(d.native_speech){document.body.classList.remove('snoozed');isSessionActive=voiceSessionActive;clearTimeout(sleepTimer);setPetState('speaking');setTimeout(()=>{if(petState==='speaking')setPetState(voiceSessionActive?'listening':'idle');if(voiceSessionActive)resetIdleTimer();},Math.min((d.response||'').length*65,6000));}
+            else {speakPet(d.response);setPetState('speaking');setTimeout(()=>{if(petState==='speaking')setPetState(voiceSessionActive?'listening':'idle');if(voiceSessionActive)resetIdleTimer();},2500);}
+            return;
+        }
+
+        if(d.type!=='telemetry')return;
+        updateLiveTools(d);
+
+        const face=d.face_detected,x=d.x??0,y=d.y??0,click=d.click??false;
+        detectEyeEasterEgg(d);
+        faceDetected=face;
+
+        if(face){
+            faceDot.classList.add('active');faceLabel.textContent='face ✓';
+            gazeX=x; gazeY=y;
+        } else {
+            faceDot.classList.remove('active');faceLabel.textContent='no face';
+        }
+
+        if(click){
+            clickPill.style.display='flex';
+            blob.classList.add('click-flash');
+            clearTimeout(clickFlashTimer);
+            clickFlashTimer=setTimeout(()=>{blob.classList.remove('click-flash');clickPill.style.display='none';},380);
+            // Wake + happy on click
+            if(petState==='sleeping'||petState==='idle') wakeUp();
+            resetIdleTimer();
+        }
+
+        if(face&&gazeEnabled) resetIdleTimer();
+    };
+}
+connectWS();
+
+/* ── LIVE TOOLS: EYE THEREMIN, ML STATUS, SETTINGS ── */
+let thereminContext=null,thereminOsc=null,thereminGain=null,thereminPlaying=false;
+let mlClickCount=0,mlNoiseCount=0;
+function updateLiveTools(d){
+    if(d.type!=='telemetry')return;
+    const face=!!d.face_detected;
+    document.getElementById('ml-face-state').textContent=face?'Face detected':'Camera active · no face';
+    document.getElementById('ml-gaze-state').textContent=d.gaze_calibrated?'Calibrated':'Fallback tracking · calibrate for accuracy';
+    document.getElementById('ml-audio-state').textContent=d.audio_calibrated?'Trained':'Needs click + noise samples';
+    document.getElementById('ml-coordinate').textContent=face?`${Math.round(d.x)}, ${Math.round(d.y)}`:'—';
+    document.getElementById('ml-confidence').textContent=`${Math.round((d.click_confidence||0)*100)}%`;
+    document.getElementById('ml-samples').textContent=`${mlClickCount} click · ${mlNoiseCount} noise`;
+    const stage=document.getElementById('theremin-stage');
+    if(face && stage){
+        const w=d.screen_w||window.innerWidth,h=d.screen_h||window.innerHeight;
+        const px=Math.max(0,Math.min(1,(d.x||0)/w)),py=Math.max(0,Math.min(1,(d.y||0)/h));
+        document.getElementById('theremin-crosshair').style.left=`${px*100}%`;
+        document.getElementById('theremin-crosshair').style.top=`${py*100}%`;
+        const hz=Math.round(110+px*770),volume=(1-py)*0.14+0.015;
+        document.getElementById('theremin-note').textContent=`${hz} Hz · ${Math.round(volume*100)}% volume`;
+        if(thereminPlaying&&thereminContext){thereminOsc.frequency.setTargetAtTime(hz,thereminContext.currentTime,.06);thereminGain.gain.setTargetAtTime(volume,thereminContext.currentTime,.08);}
+    } else if(thereminPlaying&&thereminContext) thereminGain.gain.setTargetAtTime(.001,thereminContext.currentTime,.1);
+}
+document.getElementById('theremin-start').addEventListener('click',async()=>{
+    const button=document.getElementById('theremin-start');
+    if(thereminPlaying){thereminOsc.stop();thereminContext.close();thereminContext=thereminOsc=thereminGain=null;thereminPlaying=false;button.textContent='Start sound';document.getElementById('theremin-status').textContent='Sound is off';return;}
+    try{thereminContext=new AudioContext();await thereminContext.resume();thereminOsc=thereminContext.createOscillator();thereminGain=thereminContext.createGain();thereminOsc.type='sine';thereminOsc.frequency.value=440;thereminGain.gain.value=.001;thereminOsc.connect(thereminGain);thereminGain.connect(thereminContext.destination);thereminOsc.start();thereminPlaying=true;button.textContent='Stop sound';document.getElementById('theremin-status').textContent='Sound on · move your gaze to play';}
+    catch(e){document.getElementById('theremin-status').textContent='Audio could not start. Check browser audio permissions.';}
+});
+document.getElementById('ml-calibrate-gaze').addEventListener('click',()=>{showView('home');document.getElementById('btn-calibrate').click();});
+document.getElementById('ml-record-click').addEventListener('click',()=>{if(ws?.readyState===1)ws.send(JSON.stringify({command:'record_audio_click'}));else document.getElementById('ml-message').textContent='Connect to the AURA engine first.';});
+document.getElementById('ml-record-noise').addEventListener('click',()=>{if(ws?.readyState===1)ws.send(JSON.stringify({command:'record_audio_noise'}));else document.getElementById('ml-message').textContent='Connect to the AURA engine first.';});
+document.getElementById('ml-train-audio').addEventListener('click',()=>{if(ws?.readyState===1)ws.send(JSON.stringify({command:'finish_audio_calibration'}));else document.getElementById('ml-message').textContent='Connect to the AURA engine first.';});
+
+/* ── GEMINI CHAT ── */
+const chatHistoryEl=document.getElementById('chat-history');
+
+function addMsg(text,sender){const d=document.createElement('div');d.className='chat-message chat-'+sender;d.textContent=text;chatHistoryEl.appendChild(d);chatHistoryEl.scrollTop=chatHistoryEl.scrollHeight;}
+function speakPet(text){if(!('speechSynthesis' in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.rate=1.02;window.speechSynthesis.speak(u);}
+function replyPet(text){addMsg(text,'bot');speakPet(text);if(text.toLowerCase().startsWith('snoozing')){isSessionActive=false;document.body.classList.add('snoozed');setPetState('sleeping');return;}if(text.toLowerCase().startsWith('i am awake'))wakeUp();else{wakeUp();setPetState('speaking');setTimeout(()=>{if(petState==='speaking')setPetState('idle');resetIdleTimer();},Math.min(text.length*65,5000));}}
+function sendAction(type,action,extra={}){if(ws?.readyState===1)ws.send(JSON.stringify({type,action,...extra}));}
+const selectionMode=document.getElementById('selection-mode'),dwellClickType=document.getElementById('dwell-click-type'),dwellTime=document.getElementById('dwell-time'),dwellTimeValue=document.getElementById('dwell-time-value');
+const settingsMode=document.getElementById('settings-selection-mode'),settingsClick=document.getElementById('settings-click-type'),settingsDwell=document.getElementById('settings-dwell-time'),settingsDwellValue=document.getElementById('settings-dwell-value'),settingsMagnetic=document.getElementById('settings-magnetic');
+settingsMode.value=selectionMode.value;settingsClick.value=dwellClickType.value;settingsDwell.value=dwellTime.value;settingsDwellValue.textContent=Number(settingsDwell.value).toFixed(1)+' s';
+const savedMagnetic=localStorage.getItem('aura-magnetic-mode');if(savedMagnetic)settingsMagnetic.value=savedMagnetic;
+function syncSettings(){selectionMode.value=settingsMode.value;dwellClickType.value=settingsClick.value;dwellTime.value=settingsDwell.value;dwellTimeValue.textContent=Number(settingsDwell.value).toFixed(1)+' s';localStorage.setItem('aura-dwell-time',settingsDwell.value);updateSelection();}
+settingsMode.addEventListener('change',syncSettings);settingsClick.addEventListener('change',syncSettings);settingsDwell.addEventListener('input',()=>{settingsDwellValue.textContent=Number(settingsDwell.value).toFixed(1)+' s';syncSettings();});
+function mirrorLandingSettings(){settingsMode.value=selectionMode.value;settingsClick.value=dwellClickType.value;settingsDwell.value=dwellTime.value;settingsDwellValue.textContent=Number(dwellTime.value).toFixed(1)+' s';updateSelection();}
+settingsMagnetic.addEventListener('change',()=>{localStorage.setItem('aura-magnetic-mode',settingsMagnetic.value);if(ws?.readyState===1)ws.send(JSON.stringify({type:'update_settings',magnetic_intensity:settingsMagnetic.value}));});
+function updateSelection(){const mode=selectionMode.value;if(ws?.readyState===1)ws.send(JSON.stringify({type:'update_settings',dwell_enabled:mode!=='blink',blink_enabled:mode!=='dwell',dwell_mode:dwellClickType.value,dwell_time:Number(dwellTime.value),magnetic_intensity:settingsMagnetic.value}));}
+const savedDwellTime=localStorage.getItem('aura-dwell-time');if(savedDwellTime!==null)dwellTime.value=savedDwellTime;settingsDwell.value=dwellTime.value;dwellTimeValue.textContent=Number(dwellTime.value).toFixed(1)+' s';settingsDwellValue.textContent=dwellTimeValue.textContent;
+
+selectionMode.addEventListener('change',mirrorLandingSettings);dwellClickType.addEventListener('change',mirrorLandingSettings);dwellTime.addEventListener('input',()=>{dwellTimeValue.textContent=Number(dwellTime.value).toFixed(1)+' s';localStorage.setItem('aura-dwell-time',dwellTime.value);mirrorLandingSettings();});
+document.getElementById('btn-webcam').addEventListener('click',()=>{if(ws?.readyState===1)ws.send(JSON.stringify({command:'toggle_camera'}));});
+document.getElementById('bubble-close').addEventListener('click',()=>document.getElementById('bubble-sandbox').classList.remove('active'));
+let bubbleScore=0;const bubbleGrid=document.getElementById('bubble-grid');
+for(let i=0;i<24;i++){const b=document.createElement('button');b.className='demo-bubble';b.setAttribute('aria-label','Pop bubble');b.addEventListener('click',()=>{if(b.classList.contains('popped'))return;b.classList.add('popped');bubbleScore++;document.getElementById('bubble-score').textContent=bubbleScore;try{const ac=new AudioContext(),o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.value=520+Math.random()*260;g.gain.setValueAtTime(.09,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.12);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.12);}catch(_){}});bubbleGrid.appendChild(b);}
+document.getElementById('btn-collab').addEventListener('click',()=>document.getElementById('bubble-sandbox').classList.add('active'));
+let eyeCornerSequence=[],lastEyeCorner='',lastYaw=null,lastYawTime=0;
+function detectEyeEasterEgg(d){if(!d.face_detected)return;const w=d.screen_w||innerWidth,h=d.screen_h||innerHeight,x=d.x||0,y=d.y||0,mx=w*.12,my=h*.12;let corner='';if(x<mx&&y<my)corner='tl';else if(x>w-mx&&y<my)corner='tr';else if(x<mx&&y>h-my)corner='bl';else if(x>w-mx&&y>h-my)corner='br';const now=performance.now();if(corner&&corner!==lastEyeCorner){eyeCornerSequence.push({corner,time:now});eyeCornerSequence=eyeCornerSequence.filter(p=>now-p.time<5000);lastEyeCorner=corner;if(eyeCornerSequence.slice(-4).map(p=>p.corner).join(',')==='tl,tr,bl,br'){document.body.classList.toggle('ninja-mode');eyeCornerSequence=[];replyPet('Secret eye code unlocked!');}}if(!corner)lastEyeCorner='';const yaw=d.raw_pose?.yaw;if(Number.isFinite(yaw)&&lastYaw!==null&&now-lastYawTime<350&&Math.abs(yaw-lastYaw)>18&&!d.click){document.body.classList.add('zoomies');setTimeout(()=>document.body.classList.remove('zoomies'),1800);}if(Number.isFinite(yaw)){lastYaw=yaw;lastYawTime=now;}}
+
+/* ── GAZE CALIBRATION ── */
+// Inject calibration overlay HTML
+document.body.insertAdjacentHTML('beforeend', `
+<div id="cal-overlay">
+  <div id="cal-instruction">🎯 <b>Gaze Calibration</b><br><span id="cal-sub">Look at the dot and keep your head still. It will fill up — then move to the next.</span></div>
+  <div id="cal-progress">point 0 / 9</div>
+  <button id="cal-skip-btn">skip calibration</button>
+</div>
+<div class="cal-dot" id="cal-dot"><div class="cal-dot-inner"><div class="cal-ring" id="cal-ring"></div></div></div>
+`);
+
+const calOverlay = document.getElementById('cal-overlay');
+const calDot     = document.getElementById('cal-dot');
+const calRing    = document.getElementById('cal-ring');
+const calProgress= document.getElementById('cal-progress');
+const calSub     = document.getElementById('cal-sub');
+const btnCalib   = document.getElementById('btn-calibrate');
+
+// 9 calibration points as [xFrac, yFrac] of screen
+const CAL_MARGIN = 0.08;
+const CAL_POINTS = [
+    [CAL_MARGIN,     CAL_MARGIN    ],   // top-left
+    [0.5,            CAL_MARGIN    ],   // top-center
+    [1-CAL_MARGIN,   CAL_MARGIN    ],   // top-right
+    [CAL_MARGIN,     0.5           ],   // mid-left
+    [0.5,            0.5           ],   // center
+    [1-CAL_MARGIN,   0.5           ],   // mid-right
+    [CAL_MARGIN,     1-CAL_MARGIN  ],   // bottom-left
+    [0.5,            1-CAL_MARGIN  ],   // bottom-center
+    [1-CAL_MARGIN,   1-CAL_MARGIN  ],   // bottom-right
+];
+
+let calRunning = false;
+const DWELL_MS  = 2000;  // 2s per point
+
+async function runCalibration() {
+    if (calRunning) return;
+    calRunning = true;
+    calOverlay.classList.add('active');
+    calDot.style.display = 'block';
+    calSub.textContent = 'Look at the dot and keep your head still. It will fill up — then move to the next.';
+
+    if(ws?.readyState===1)ws.send(JSON.stringify({type:'update_settings',dwell_enabled:false,blink_enabled:false}));
+    for (let i = 0; i < CAL_POINTS.length; i++) {
+        if(!calRunning)break;
+        const [xf, yf] = CAL_POINTS[i];
+        const px = Math.round(xf * window.screen.width);
+        const py = Math.round(yf * window.screen.height);
+
+        // Position the dot
+        calDot.style.left = (xf * 100) + 'vw';
+        calDot.style.top  = (yf * 100) + 'vh';
+        calProgress.textContent = `point ${i + 1} / ${CAL_POINTS.length}`;
+
+        // Reset ring animation
+        calRing.classList.remove('filling');
+        void calRing.offsetWidth; // force reflow
+
+        // Wait briefly for eyes to settle (500ms)
+        await new Promise(r => setTimeout(r, 500));
+
+        // Tell server to start recording gaze for this target
+        if (ws?.readyState === 1) {
+            ws.send(JSON.stringify({command: 'start_record_target', target_id: i}));
+        }
+
+        // Animate ring while recording
+        calRing.classList.add('filling');
+        await new Promise(r => setTimeout(r, DWELL_MS));
+
+        // Stop recording this target
+        if (ws?.readyState === 1) {
+            ws.send(JSON.stringify({command: 'stop_record_target'}));
+        }
+        await new Promise(r => setTimeout(r, 200));
+    }
+
+    if(!calRunning){
+        if(ws?.readyState===1)ws.send(JSON.stringify({type:'update_settings',dwell_enabled:selectionMode.value!=='blink',blink_enabled:selectionMode.value!=='dwell',dwell_mode:dwellClickType.value}));
+        return;
+    }
+    // Train model with all collected data
+    calProgress.textContent = 'training model…';
+    calSub.textContent = 'Building your personal gaze model. This takes a moment.';
+    calibrationOutcome=null;
+    if (ws?.readyState === 1) ws.send(JSON.stringify({command: 'finish_gaze_calibration'}));
+    for(let wait=0;wait<60&&calibrationOutcome===null;wait++)await new Promise(r=>setTimeout(r,500));
+    if(calibrationOutcome===true){
+        calProgress.textContent='Calibration complete';
+        calSub.textContent='Your gaze model is active.';
+    }else{
+        calProgress.textContent='Calibration did not complete';
+        calSub.textContent=calibrationOutcome||'No server response. Check the camera and repeat calibration.';
+    }
+    if(ws?.readyState===1)ws.send(JSON.stringify({type:'update_settings',dwell_enabled:selectionMode.value!=='blink',blink_enabled:selectionMode.value!=='dwell',dwell_mode:dwellClickType.value}));
+    setTimeout(() => {
+        calOverlay.classList.remove('active');
+        calDot.style.display = 'none';
+        calRunning = false;
+    }, 2000);
+}
+
+btnCalib.addEventListener('click', runCalibration);
+document.getElementById('cal-skip-btn').addEventListener('click', () => {
+    calOverlay.classList.remove('active');
+    calDot.style.display = 'none';
+    calRunning = false;
+    if(ws?.readyState===1)ws.send(JSON.stringify({type:'update_settings',dwell_enabled:selectionMode.value!=='blink',blink_enabled:selectionMode.value!=='dwell',dwell_mode:dwellClickType.value}));
+});
+</script>
 </body>
 </html>

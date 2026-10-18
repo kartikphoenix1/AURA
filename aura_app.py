@@ -67,11 +67,20 @@ def ensure_server():
         time.sleep(0.3)
 
 
-def start_windows_controller():
-    """Starts windows_controller.py in background."""
-    print("[AuraApp] Starting Windows Native Controller (windows_controller.py)...")
+def start_os_controller():
+    """Starts native OS controller in background (macOS Quartz or Windows Win32)."""
+    if sys.platform == "darwin":
+        controller_script = "macos_controller.py"
+        print("[AuraApp] Starting macOS Native Controller (macos_controller.py)...")
+    elif sys.platform == "win32":
+        controller_script = "windows_controller.py"
+        print("[AuraApp] Starting Windows Native Controller (windows_controller.py)...")
+    else:
+        controller_script = "system_controller.py"
+        print("[AuraApp] Starting System Controller (system_controller.py)...")
+
     proc = subprocess.Popen(
-        [sys.executable, os.path.join(_BASE_DIR, "windows_controller.py")],
+        [sys.executable, os.path.join(_BASE_DIR, controller_script)],
         cwd=_BASE_DIR,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     )
@@ -130,14 +139,18 @@ def main():
     ensure_http_server()
     ensure_server()
 
-    # Launch background controllers & overlays
-    win_ctrl = start_windows_controller()
+    # Launch the platform controller and voice service.
+    os_ctrl = start_os_controller()
     voice_ctrl = start_voice_commander()
-    eye_overlay = start_eye_cursor_overlay()
-    pet_widget = start_floating_pet()
-    cam_overlay = start_camera_overlay()
-
-    procs = [win_ctrl, voice_ctrl, eye_overlay, pet_widget, cam_overlay]
+    procs = [os_ctrl, voice_ctrl]
+    # These Tk overlays use Windows-specific transparency/click-through behavior.
+    # Keep them available in the alternate Windows launcher only.
+    if sys.platform == "win32":
+        for start_overlay in (start_eye_cursor_overlay, start_floating_pet, start_camera_overlay):
+            try:
+                procs.append(start_overlay())
+            except Exception as exc:
+                print(f"[AuraApp] Optional overlay could not start: {exc}")
 
     target_url = f"http://127.0.0.1:{HTTP_PORT}"
     print(f"[AuraApp] Opening native desktop window at {target_url}...")

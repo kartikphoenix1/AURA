@@ -1159,3 +1159,311 @@ body {
     border-color: #ff4757;
     color: #ff4757;
 }
+
+/* ========================================================
+   MAC APPS & DESKTOP CONTROLLER VIEW
+   ======================================================== */
+.mac-apps-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding-bottom: 40px;
+}
+
+/* Accessibility Card */
+.mac-access-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    border-radius: 16px;
+    background: rgba(25, 20, 15, 0.7);
+    border: 1px solid rgba(255, 165, 2, 0.4);
+    box-shadow: 0 10px 30px rgba(255, 165, 2, 0.12);
+    backdrop-filter: blur(16px);
+    transition: all 0.3s ease;
+}
+
+.mac-access-card.success {
+    background: rgba(10, 30, 25, 0.7);
+    border-color: rgba(46, 213, 115, 0.4);
+    box-shadow: 0 10px 30px rgba(46, 213, 115, 0.12);
+}
+
+.access-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.access-icon {
+    font-size: 32px;
+}
+
+.access-content h3 {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffa502;
+}
+
+.mac-access-card.success .access-content h3 {
+    color: #2ed573;
+}
+
+.access-content p {
+    margin: 0;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.75);
+    max-width: 650px;
+}
+
+.access-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Toolbar & Segmented Controls */
+.mac-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 20px;
+    border-radius: 14px;
+    background: rgba(16, 24, 40, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+}
+
+.mac-tool-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.group-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.btn-segmented {
+    display: flex;
+    background: rgba(0, 0, 0, 0.35);
+    padding: 3px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.seg-btn {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.seg-btn:hover {
+    color: #fff;
+}
+
+.seg-btn.active {
+    background: linear-gradient(135deg, #00f2fe, #4facfe);
+    color: #0b0f19;
+    font-weight: 700;
+    box-shadow: 0 2px 10px rgba(0, 242, 254, 0.35);
+}
+
+.quick-action-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* App Grid Header & Search */
+.app-grid-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.app-grid-header h2 {
+    margin: 0 0 6px 0;
+    font-size: 22px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #fff, #b4c6e7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.app-grid-header p {
+    margin: 0;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.custom-app-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.aura-input {
+    background: rgba(16, 24, 40, 0.7);
+    border: 1px solid rgba(0, 242, 254, 0.25);
+    border-radius: 10px;
+    padding: 9px 14px;
+    color: #fff;
+    font-size: 13px;
+    width: 260px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.aura-input:focus {
+    border-color: #00f2fe;
+    box-shadow: 0 0 12px rgba(0, 242, 254, 0.3);
+}
+
+/* Mac Apps Grid */
+.mac-app-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 16px;
+}
+
+.mac-app-card {
+    position: relative;
+    background: rgba(18, 26, 45, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px 16px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.25s, box-shadow 0.25s, background 0.25s;
+    backdrop-filter: blur(12px);
+}
+
+.mac-app-card:hover {
+    transform: translateY(-5px) scale(1.02);
+    border-color: rgba(0, 242, 254, 0.5);
+    background: rgba(25, 38, 65, 0.75);
+    box-shadow: 0 12px 28px rgba(0, 242, 254, 0.18);
+}
+
+.mac-app-card:active, .mac-app-card.launching {
+    transform: scale(0.96);
+    border-color: #00f2fe;
+    box-shadow: 0 0 25px rgba(0, 242, 254, 0.5);
+}
+
+.app-icon {
+    font-size: 44px;
+    margin-bottom: 10px;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+    transition: transform 0.2s;
+}
+
+.mac-app-card:hover .app-icon {
+    transform: scale(1.12);
+}
+
+.app-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+}
+
+.app-sub {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.dwell-progress-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.dwell-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #00f2fe, #4facfe);
+    box-shadow: 0 0 8px #00f2fe;
+    transition: width 0.05s linear;
+}
+
+.mac-app-card.dwelling .dwell-fill {
+    width: 100%;
+}
+
+/* Hints Card */
+.mac-hints-card {
+    background: rgba(16, 24, 40, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 18px 22px;
+}
+
+.mac-hints-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.voice-cmd-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.voice-chip {
+    background: rgba(0, 242, 254, 0.08);
+    border: 1px solid rgba(0, 242, 254, 0.2);
+    color: #00f2fe;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.voice-chip strong {
+    color: #fff;
+}
+
+.voice-chip:hover {
+    background: rgba(0, 242, 254, 0.18);
+    border-color: #00f2fe;
+    transform: translateY(-2px);
+}
+
+.status-pill.warning {
+    background: rgba(255, 165, 2, 0.15);
+    border: 1px solid rgba(255, 165, 2, 0.4);
+    color: #ffa502;
+}
+
+.status-pill.success {
+    background: rgba(46, 213, 115, 0.15);
+    border: 1px solid rgba(46, 213, 115, 0.4);
+    color: #2ed573;
+}
